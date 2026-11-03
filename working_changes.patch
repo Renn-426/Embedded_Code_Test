@@ -1,0 +1,2325 @@
+diff --git a/README.md b/README.md
+index 6b398da..28bbfc2 100644
+--- a/README.md
++++ b/README.md
+@@ -27,7 +27,7 @@ settings) and `app_program/integration/` (vehicle state machine, barcode map).
+ |---|---|
+ | Left motor / right motor | GP8, GP9 / GP10, GP11 (Robo Pico M1 / M2) |
+ | Left / right wheel encoder | GP26 / GP6 |
+-| Centre IR (AO) / left IR (DO) / barcode IR (DO) | GP27 / GP3 / GP28 |
++| Centre IR (AO) / left IR (DO) / barcode IR (AO) | GP27 / GP3 / GP28 |
+ | IMU LSM303 (I2C SDA / SCL) | GP0 / GP1 |
+ | Ultrasonic ECHO / TRIG | GP4 / GP5 |
+ | Servo | GP15 |
+@@ -42,14 +42,14 @@ Needs the Arm GCC toolchain, GNU make and the Pico SDK (we build in WSL/Ubuntu).
+ 
+ ```
+ cd build_make
+-make SMP=0 CONSOLE=usb_cdc DEBUG_MON=1 PICO_SDK_PATH=~/pico-sdk -j8
++make SMP=0 CONSOLE=usb_cdc DEBUG_MON=1 PICO_SDK_PATH=~/pico/pico-sdk -j8
+ ```
+ 
+ Full robot with Wi-Fi/MQTT (put your network in `config/wifi_credentials.h`
+ first, never commit it):
+ 
+ ```
+-make SMP=0 CONSOLE=usb_cdc WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 MQTT=1 PICO_SDK_PATH=~/pico-sdk -j8
++make SMP=0 CONSOLE=usb_cdc WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 MQTT=1 PICO_SDK_PATH=~/pico/pico-sdk -j8
+ ```
+ 
+ Single-buddy bench tests: add `BUDDY_TEST=2`, `3` or `23`.
+diff --git a/app_program/buddy1_comms/comms.c b/app_program/buddy1_comms/comms.c
+index 9b0789f..8bf09e7 100644
+--- a/app_program/buddy1_comms/comms.c
++++ b/app_program/buddy1_comms/comms.c
+@@ -338,3 +338,4 @@ apply_tune (uint32_t word)
+ }
+ 
+ /*** end of file ***/
++
+diff --git a/app_program/buddy1_comms/comms.h b/app_program/buddy1_comms/comms.h
+index 967ced8..bda6b66 100644
+--- a/app_program/buddy1_comms/comms.h
++++ b/app_program/buddy1_comms/comms.h
+@@ -60,3 +60,4 @@ void     comms_count_drop(void);
+ #endif /* COMMS_H */
+ 
+ /*** end of file ***/
++
+diff --git a/app_program/buddy1_comms/comms_net.c b/app_program/buddy1_comms/comms_net.c
+index 507ea0a..e35c07c 100644
+--- a/app_program/buddy1_comms/comms_net.c
++++ b/app_program/buddy1_comms/comms_net.c
+@@ -301,7 +301,9 @@ enter_state (net_state_t state, uint32_t now_ms)
+ static void
+ lose_link (uint32_t now_ms)
+ {
+-    if ((NULL != gp_client) && (0u != mqtt_client_is_connected(gp_client)))
++    // Also needed for an attempt still connecting, or the next connect fails
++    // with ERR_ISCONN.  lwIP ignores this call on an idle client.
++    if (NULL != gp_client)
+     {
+         mqtt_disconnect(gp_client);
+     }
+@@ -512,3 +514,4 @@ comms_net_start (void)
+ #endif  /* TM_WIFI_MQTT */
+ 
+ /*** end of file ***/
++
+diff --git a/app_program/buddy1_comms/comms_net.h b/app_program/buddy1_comms/comms_net.h
+index 6b0556b..8f474a5 100644
+--- a/app_program/buddy1_comms/comms_net.h
++++ b/app_program/buddy1_comms/comms_net.h
+@@ -22,3 +22,4 @@ int32_t comms_net_start(void);
+ #endif /* COMMS_NET_H */
+ 
+ /*** end of file ***/
++
+diff --git a/app_program/buddy1_comms/telemetry.c b/app_program/buddy1_comms/telemetry.c
+index 0b8aee7..c7c4147 100644
+--- a/app_program/buddy1_comms/telemetry.c
++++ b/app_program/buddy1_comms/telemetry.c
+@@ -289,3 +289,4 @@ write_health (void)
+ }
+ 
+ /*** end of file ***/
++
+diff --git a/app_program/buddy1_comms/telemetry.h b/app_program/buddy1_comms/telemetry.h
+index 5c47002..bc6a9b1 100644
+--- a/app_program/buddy1_comms/telemetry.h
++++ b/app_program/buddy1_comms/telemetry.h
+@@ -68,3 +68,4 @@ uint32_t telemetry_dropped_events(void);
+ #endif /* TELEMETRY_H */
+ 
+ /*** end of file ***/
++
+diff --git a/app_program/buddy1_comms/tlm_codec.c b/app_program/buddy1_comms/tlm_codec.c
+index 5922b18..2a5b6fd 100644
+--- a/app_program/buddy1_comms/tlm_codec.c
++++ b/app_program/buddy1_comms/tlm_codec.c
+@@ -346,3 +346,4 @@ finish_frame (bitpack_t const * p_pack)
+ }
+ 
+ /*** end of file ***/
++
+diff --git a/app_program/buddy1_comms/tlm_codec.h b/app_program/buddy1_comms/tlm_codec.h
+index 4baa3ed..5e1e37a 100644
+--- a/app_program/buddy1_comms/tlm_codec.h
++++ b/app_program/buddy1_comms/tlm_codec.h
+@@ -115,3 +115,4 @@ tlm_codec_cmd_t tlm_codec_parse_command(uint8_t const * p_in,
+ #endif /* TLM_CODEC_H */
+ 
+ /*** end of file ***/
++
+diff --git a/app_program/buddy2_motion/encoder.c b/app_program/buddy2_motion/encoder.c
+index 8a5fb44..2d43e36 100644
+--- a/app_program/buddy2_motion/encoder.c
++++ b/app_program/buddy2_motion/encoder.c
+@@ -35,8 +35,9 @@
+ #define UM_PER_MM               1000
+ #define MM_PER_CM               10
+ #define EDGE_TIMEOUT_US         (ENC_EDGE_TIMEOUT_MS * US_PER_MS)
++#define SPEED_WINDOW            5u      // Periods the speed is averaged over.
+ 
+-// Edge length, tunable live (TUNE_ENC_UM_PER_EDGE, 500..30000 um).
++// Edge length, tunable live (TUNE_ENC_UM_PER_EDGE, 50..30000 um).
+ // NOTE: the signed distance product overflows after about 200 m of travel
+ // per wheel, far beyond one 5-minute run.
+ #define UM_PER_EDGE             (tune_get(TUNE_ENC_UM_PER_EDGE))
+@@ -58,10 +59,16 @@ static wheel_isr_t volatile g_wheels[WHEEL_COUNT];
+ // Published snapshot (enc_state), guarded by ROBOT_IPC_LOCK_ENC_STATE.
+ static encoder_state_t      g_state;
+ 
++// Recent counts and their times, for the speed (encoder task only).
++static int32_t              g_hist_count[WHEEL_COUNT][SPEED_WINDOW];
++static uint32_t             g_hist_us[SPEED_WINDOW];
++static uint32_t             g_hist_next = 0u;
++
+ static uint64_t             g_stack[STACK_SMALL / sizeof(uint64_t)];
+ 
+ static void    encoder_task(INT start_code, void * p_ext_info);
+-static int32_t wheel_speed(wheel_isr_t const * p_wheel, uint32_t now_us);
++static int32_t wheel_speed(uint32_t wheel, wheel_isr_t const * p_wheel,
++                           uint32_t now_us);
+ static void    publish(encoder_state_t const * p_state);
+ static void    encoder_edge_isr(uint32_t pin, uint32_t edges,
+                                 uint32_t time_us, uint32_t levels);
+@@ -187,8 +194,17 @@ encoder_task (INT start_code, void * p_ext_info)
+ 
+         state.left_count        = copy[WHEEL_LEFT].count;
+         state.right_count       = copy[WHEEL_RIGHT].count;
+-        state.left_speed_mm_s   = wheel_speed(&copy[WHEEL_LEFT], now_us);
+-        state.right_speed_mm_s  = wheel_speed(&copy[WHEEL_RIGHT], now_us);
++        state.left_speed_mm_s   = wheel_speed(WHEEL_LEFT, &copy[WHEEL_LEFT],
++                                              now_us);
++        state.right_speed_mm_s  = wheel_speed(WHEEL_RIGHT,
++                                              &copy[WHEEL_RIGHT], now_us);
++
++        // Remember this sample for the speed window.
++        g_hist_count[WHEEL_LEFT][g_hist_next]  = copy[WHEEL_LEFT].count;
++        g_hist_count[WHEEL_RIGHT][g_hist_next] = copy[WHEEL_RIGHT].count;
++        g_hist_us[g_hist_next]                 = now_us;
++        g_hist_next                            = (g_hist_next + 1u) %
++                                                 SPEED_WINDOW;
+         state.distance_mm       = ((state.left_count + state.right_count) *
+                                    UM_PER_EDGE) / (2 * UM_PER_MM);
+         state.left_edge_age_ms  = (now_us - copy[WHEEL_LEFT].last_edge_us) /
+@@ -204,28 +220,41 @@ encoder_task (INT start_code, void * p_ext_info)
+ 
+ 
+ /*!
+- * @brief Speed of one wheel from its last edge interval.
++ * @brief Speed of one wheel from its count over the last SPEED_WINDOW
++ *        periods.
+  *
++ * @param[in] wheel    WHEEL_LEFT or WHEEL_RIGHT.
+  * @param[in] p_wheel  Copied interrupt data of the wheel.
+  * @param[in] now_us   Current time.
+  *
+  * @return Signed speed in mm/s; 0 if no edge arrived recently.
++ *
++ * @par
++ * The count rate is used rather than the last edge interval: with motor
++ * shaft encoders edges arrive every millisecond, two often share one
++ * interrupt, and a single interval then reads half the true speed.  The
++ * sign comes from the counted direction.
+  */
+ static int32_t
+-wheel_speed (wheel_isr_t const * p_wheel, uint32_t now_us)
++wheel_speed (uint32_t wheel, wheel_isr_t const * p_wheel, uint32_t now_us)
+ {
+     int32_t speed = 0;
+ 
+-    if ((0u != p_wheel->period_us) &&
+-        ((now_us - p_wheel->last_edge_us) < EDGE_TIMEOUT_US))
++    if ((now_us - p_wheel->last_edge_us) < EDGE_TIMEOUT_US)
+     {
+-        // um/edge * 1000 / us/edge = mm/s.
+-        // The tuned edge length is 500..30000, so the cast is exact.
+-        uint32_t const magnitude = ((uint32_t) UM_PER_EDGE * US_PER_MS) /
+-                                   p_wheel->period_us;
++        // The oldest sample in the ring is the one about to be replaced.
++        uint32_t const oldest   = g_hist_next;
++        uint32_t const span_ms  = (now_us - g_hist_us[oldest]) / US_PER_MS;
++        int32_t const  edges    = p_wheel->count - g_hist_count[wheel][oldest];
+ 
+-        // magnitude is below 10^7, so the conversion to int32_t is exact.
+-        speed = (int32_t) magnitude * p_wheel->direction;
++        if (span_ms > 0u)
++        {
++            // edges * um/edge / ms = um/ms = mm/s.  |edges| stays below
++            // 1000 in 50 ms and the edge length below 30000, so the
++            // product fits; span_ms is at most a few hundred, exact as
++            // int32_t.
++            speed = (edges * UM_PER_EDGE) / (int32_t) span_ms;
++        }
+     }
+ 
+     return (speed);
+diff --git a/app_program/buddy2_motion/motion.c b/app_program/buddy2_motion/motion.c
+index 00874a8..69c411b 100644
+--- a/app_program/buddy2_motion/motion.c
++++ b/app_program/buddy2_motion/motion.c
+@@ -39,6 +39,8 @@
+ #define SPEED_FIELD_WIDTH       10u
+ #define PID_TRIM_PERMILLE       500
+ #define BRAKE_DECAY_DIVISOR     2
++#define BRAKE_TIMEOUT_MS        500u
++#define STALL_GAP_FACTOR        3u
+ #define DECEL_GAIN              4u
+ #define DECEL_FLOOR_MM_S        80u
+ #define MS_PER_PERIOD           (PERIOD_BASE_MS * PERIOD_MOTION_TICKS)
+@@ -89,6 +91,7 @@ static uint32_t travelled_um(encoder_state_t const * p_enc);
+ static uint32_t turn_um_per_deg(void);
+ static void     drive_wheels(encoder_state_t const * p_enc);
+ static void     check_stall(encoder_state_t const * p_enc);
++static bool     is_wheel_stalled(uint32_t wheel, uint32_t edge_age_ms);
+ static void     enter_mode(motion_mode_t mode);
+ static void     publish_status(encoder_state_t const * p_enc);
+ static int32_t  sign_of(int32_t value);
+@@ -590,10 +593,12 @@ drive_wheels (encoder_state_t const * p_enc)
+                           sign_of(g_ctx.output[WHEEL_RIGHT]));
+     motor_hw_set(g_ctx.output[WHEEL_LEFT], g_ctx.output[WHEEL_RIGHT]);
+ 
+-    // Braking ends once both wheels have (almost) stopped.
++    // Braking ends once both wheels have (almost) stopped, or after a time
++    // limit, so encoder noise on a stopped wheel cannot hold up the next step.
+     if ((MOTION_MODE_BRAKING == g_ctx.mode) &&
+-        (fix_math_abs(p_enc->left_speed_mm_s) < STOPPED_SPEED) &&
+-        (fix_math_abs(p_enc->right_speed_mm_s) < STOPPED_SPEED))
++        (((fix_math_abs(p_enc->left_speed_mm_s) < STOPPED_SPEED) &&
++          (fix_math_abs(p_enc->right_speed_mm_s) < STOPPED_SPEED)) ||
++         (g_ctx.mode_age_ms >= BRAKE_TIMEOUT_MS)))
+     {
+         motor_hw_set(0, 0);
+         enter_mode(MOTION_MODE_IDLE);
+@@ -617,12 +622,10 @@ check_stall (encoder_state_t const * p_enc)
+     bool const b_driving = (MOTION_MODE_FOLLOWING == g_ctx.mode) ||
+                            (MOTION_MODE_MOVING == g_ctx.mode) ||
+                            (MOTION_MODE_TURNING == g_ctx.mode);
+-    bool const b_left    = (fix_math_abs(g_ctx.output[WHEEL_LEFT]) >=
+-                            MIN_DRIVE) &&
+-                           (p_enc->left_edge_age_ms > STALL_TIMEOUT_MS);
+-    bool const b_right   = (fix_math_abs(g_ctx.output[WHEEL_RIGHT]) >=
+-                            MIN_DRIVE) &&
+-                           (p_enc->right_edge_age_ms > STALL_TIMEOUT_MS);
++    bool const b_left    = is_wheel_stalled(WHEEL_LEFT,
++                                            p_enc->left_edge_age_ms);
++    bool const b_right   = is_wheel_stalled(WHEEL_RIGHT,
++                                            p_enc->right_edge_age_ms);
+ 
+     if (b_driving && (g_ctx.mode_age_ms > STALL_TIMEOUT_MS) &&
+         (b_left || b_right))
+@@ -647,6 +650,47 @@ enter_mode (motion_mode_t mode)
+ {
+     g_ctx.mode        = mode;
+     g_ctx.mode_age_ms = 0u;
++
++    // A new mode starts clean: trim wound up in a turn must not carry into
++    // the next move, where it would keep the robot turning.
++    for (uint32_t wheel = 0u; wheel < WHEEL_COUNT; wheel++)
++    {
++        pid_ctrl_reset(&g_ctx.pid[wheel]);
++    }
++}
++
++
++/*!
++ * @brief Decide whether one driven wheel has stopped producing edges.
++ *
++ * @param[in] wheel        WHEEL_LEFT or WHEEL_RIGHT.
++ * @param[in] edge_age_ms  Time since the wheel's last edge.
++ *
++ * @return true if the wheel is driven and its edges are overdue.
++ *
++ * @par
++ * A slowed inner wheel is still moving even when its edges are far apart,
++ * so the limit grows with the edge interval expected at the target speed.
++ */
++static bool
++is_wheel_stalled (uint32_t wheel, uint32_t edge_age_ms)
++{
++    int32_t const target    = fix_math_abs(g_ctx.target[wheel]);
++    bool          b_stalled = false;
++
++    if ((0 != target) && (fix_math_abs(g_ctx.output[wheel]) >= MIN_DRIVE))
++    {
++        // um per edge / mm per s = ms per edge.  Both are positive here, so
++        // the casts are exact.
++        uint32_t const gap_ms = (uint32_t) tune_get(TUNE_ENC_UM_PER_EDGE) /
++                                (uint32_t) target;
++        uint32_t const limit  = gap_ms * STALL_GAP_FACTOR;
++
++        b_stalled = edge_age_ms > ((limit > STALL_TIMEOUT_MS) ?
++                                   limit : STALL_TIMEOUT_MS);
++    }
++
++    return (b_stalled);
+ }
+ 
+ 
+diff --git a/app_program/buddy3_line/barcode.c b/app_program/buddy3_line/barcode.c
+index d9369e2..e07d1af 100644
+--- a/app_program/buddy3_line/barcode.c
++++ b/app_program/buddy3_line/barcode.c
+@@ -14,7 +14,7 @@
+  * The quiet zone that ends a capture is adaptive: at least BARCODE_QUIET_MS
+  * and at least four times the widest element seen so far.  A Code 39 quiet
+  * zone is at least ten narrow elements wide while a wide element is at most
+- * three, so this never splits a barcode, at any constant speed.
++ * three, so this does not split a barcode above about 45 mm/s.
+  *
+  * @par
+  * COPYRIGHT NOTICE: (c) 2026 AAI03 team, INF2004.  All rights reserved.
+@@ -24,8 +24,17 @@
+ #include <stdbool.h>
+ #include <tk/tkernel.h>
+ 
++#ifndef DEBUG_MON
++#define DEBUG_MON               0
++#endif
++#if (1 == DEBUG_MON)
++#include <tm/tmonitor.h>
++#endif
++
+ #include "robot_cfg.h"
++#include "board_hw.h"
+ #include "gpio_irq.h"
++#include "ir_hw.h"
+ #include "robot_ipc.h"
+ #include "sys_status.h"
+ #include "bitpack.h"
+@@ -36,11 +45,12 @@
+ #define TICK_US                 16u
+ #define ENTRY_BLACK_BIT         0x8000u
+ #define ENTRY_WIDTH_MASK        0x7FFFu
+-#define MAX_ELEMENTS            32u
++#define MAX_ELEMENTS            36u
+ #define QUIET_FACTOR            4u
+ #define US_PER_MS               1000u
+ #define LETTER_COUNT            26u
+ #define FIRST_LETTER            0x41u     // ASCII code of the letter A.
++#define ADC_IRQ_LEVEL           2         // Below the GPIO edge interrupt.
+ 
+ /*!
+  * @brief One finished capture.
+@@ -49,8 +59,8 @@ typedef struct
+ {
+     uint32_t    widths[MAX_ELEMENTS];
+     uint32_t    count;
+-    bool        b_started_on_bar;
+     bool        b_overflow;
++    bool        b_early;        // Ended on a decode, not on a quiet zone.
+ } capture_t;
+ 
+ // Interrupt-to-task FIFO.  Head and overflow count: written by the ISR only.
+@@ -61,6 +71,53 @@ static uint32_t volatile g_fifo_tail      = 0u;
+ static uint32_t volatile g_overflow_count = 0u;
+ static uint32_t          g_last_edge_us   = 0u;     // ISR only.
+ 
++#if BARCODE_SENSOR_ANALOGUE
++#define BOX_LEN                 BARCODE_AVERAGE   // Running average length.
++
++/*!
++ * @brief Edge finder state (ADC interrupt only).
++ */
++typedef struct
++{
++    uint32_t    valley;        // Lowest darkness of the current white element.
++    uint32_t    peak_env;      // Highest darkness seen recently (decays).
++    uint32_t    bar_peak;      // Highest darkness of the current bar.
++    uint32_t    sample_idx;    // Samples seen so far (wraps; differences used).
++    uint32_t    bar_peak_idx;  // Sample index of the current bar's peak.
++    uint32_t    last_fall_idx; // Sample index of the last bar's end.
++    uint32_t    prev1;         // Previous raw darkness (median input).
++    uint32_t    prev2;         // The one before that.
++    uint32_t    box[BOX_LEN];  // Last median outputs (average input).
++    uint32_t    box_sum;
++    uint32_t    box_pos;
++    bool        b_black;
++    bool        b_started;
++} sampler_t;
++
++#define US_PER_SAMPLE           (US_PER_MS * 1000u / IR_SAMPLE_HZ)
++#define MIN_BAR_SAMPLES         ((BARCODE_MIN_BAR_MS * IR_SAMPLE_HZ) / 1000u)
++
++static sampler_t         g_sampler;
++static uint16_t          g_history[BARCODE_HISTORY];   // ISR only.
++
++// For the debug monitor: single aligned stores from the interrupt.
++static uint32_t volatile g_dbg_dark   = 0u;
++static uint32_t volatile g_dbg_white  = 0u;
++static uint32_t volatile g_dbg_black  = 0u;
++
++#if (1 == DEBUG_MON)
++// Bench aid: the last eight seconds of darkness readings, printed with each
++// capture so the waveform can be replayed on a PC.
++#define TRACE_SAMPLES           16384u
++#define TRACE_DECIMATE          8u
++#define TRACE_PER_LINE          32u
++#define TRACE_LINE_PAUSE_MS     25          // Lets the USB console drain.
++static uint16_t volatile g_trace[TRACE_SAMPLES];
++static uint32_t volatile g_trace_head   = 0u;   // ISR only.
++static bool volatile     gb_trace_frozen = false;  // Task: hold while printing.
++#endif
++#endif
++
+ static ID                gh_task          = 0;
+ static uint32_t          g_status         = 0u;     // Task only.
+ static uint32_t          g_sequence       = 0u;     // Task only.
+@@ -70,13 +127,29 @@ static uint64_t          g_stack[STACK_MEDIUM / sizeof(uint64_t)];
+ 
+ static void     barcode_task(INT start_code, void * p_ext_info);
+ static void     capture(capture_t * p_capture);
++static void     settle(void);
+ static bool     drain(capture_t * p_capture, bool b_first);
+ static void     report(uint8_t symbol, bool b_reversed);
+ static void     reject(barcode_reject_t reason, uint32_t count);
+ static void     set_state(barcode_state_t state);
+ static barcode_reject_t to_reject(code39_result_t result);
++static void     push_edge(uint32_t time_us, bool b_black);
++#if (1 == DEBUG_MON)
++static void     dump_capture(capture_t const * p_capture);
++#if BARCODE_SENSOR_ANALOGUE
++static void     dump_trace(void);
++#endif
++#endif
++#if BARCODE_SENSOR_ANALOGUE
++static void     barcode_adc_isr(UINT int_number);
++static void     on_sample(uint32_t raw, uint32_t time_us);
++static void     end_bar(sampler_t * p_s, uint32_t mid, uint32_t time_us);
++static uint32_t median3(uint32_t a_val, uint32_t b_val, uint32_t c_val);
++static uint32_t filter_sample(sampler_t * p_s, uint32_t now);
++#else
+ static void     barcode_edge_isr(uint32_t pin, uint32_t edges,
+                                  uint32_t time_us, uint32_t levels);
++#endif
+ 
+ 
+ /*!
+@@ -95,16 +168,62 @@ barcode_start (void)
+     gh_task = robot_ipc_start_task(barcode_task, PRIO_BARCODE, g_stack,
+                                    sizeof(g_stack));
+ 
++#if BARCODE_SENSOR_ANALOGUE
++    {
++        // The ADC itself was started by ir_hw_init() (Line Following).
++        T_DINT const dint =
++        {
++            .intatr = TA_HLNG,
++            .inthdr = barcode_adc_isr
++        };
++
++        if ((gh_task <= 0) || (E_OK != tk_def_int(IR_HW_ADC_IRQ_NUM, &dint)))
++        {
++            result = -1;
++        }
++        else
++        {
++            EnableInt(IR_HW_ADC_IRQ_NUM, ADC_IRQ_LEVEL);
++        }
++    }
++#else
+     if ((gh_task <= 0) ||
+         (!gpio_irq_attach(PIN_IR_BARCODE_DO, barcode_edge_isr, true, true)))
+     {
+         result = -1;
+     }
++#endif
+ 
+     return (result);
+ }
+ 
+ 
++/*!
++ * @brief Current analogue levels for the debug monitor.
++ *
++ * @param[out] p_dark   Latest reading as darkness (0 = brightest).
++ * @param[out] p_white  White level the edge finder is working from.
++ * @param[out] p_black  Black level the edge finder is working from.
++ *
++ * @par
++ * All zero with the digital sensor.
++ */
++void
++barcode_debug_levels (uint32_t * p_dark, uint32_t * p_white,
++                      uint32_t * p_black)
++{
++#if BARCODE_SENSOR_ANALOGUE
++    *p_dark  = g_dbg_dark;
++    *p_white = g_dbg_white;
++    *p_black = g_dbg_black;
++#else
++    *p_dark  = 0u;
++    *p_white = 0u;
++    *p_black = 0u;
++#endif
++}
++
++
+ /*!
+  * @brief Extract the letter from a navigation message.
+  *
+@@ -143,16 +262,15 @@ barcode_task (INT start_code, void * p_ext_info)
+         set_state(BARCODE_STATE_CAPTURING);
+         capture(&cap);
+ 
++#if (1 == DEBUG_MON)
++        dump_capture(&cap);
++#endif
+         set_state(BARCODE_STATE_DECODING);
+ 
+         if (cap.b_overflow)
+         {
+             reject(BARCODE_REJECT_OVERFLOW, cap.count);
+         }
+-        else if (!cap.b_started_on_bar)
+-        {
+-            reject(BARCODE_REJECT_START, cap.count);
+-        }
+         else
+         {
+             uint8_t               symbol     = 0u;
+@@ -172,6 +290,12 @@ barcode_task (INT start_code, void * p_ext_info)
+             }
+         }
+ 
++        if (cap.b_early)
++        {
++            // The command is out; now let the rest of the label pass.
++            settle();
++        }
++
+         // Discard wake-ups queued by edges that belonged to this capture.
+         (void) tk_can_wup(TSK_SELF);  // The count itself is not needed.
+     }
+@@ -190,17 +314,28 @@ capture (capture_t * p_capture)
+     bool           b_first         = true;
+     bool           b_quiet         = false;
+ 
+-    p_capture->count            = 0u;
+-    p_capture->b_started_on_bar = false;
+-    p_capture->b_overflow       = false;
++    p_capture->count      = 0u;
++    p_capture->b_overflow = false;
++    p_capture->b_early    = false;
+ 
+     while (!b_quiet)
+     {
+-        uint32_t widest   = 0u;
+-        uint32_t quiet_ms = BARCODE_QUIET_MS;
++        uint32_t widest     = 0u;
++        uint32_t quiet_ms   = BARCODE_QUIET_MS;
++        uint8_t  symbol     = 0u;
++        bool     b_reversed = false;
+ 
+         b_first = drain(p_capture, b_first);
+ 
++        // A complete barcode ends the capture at once, so the command is
++        // latched well before the junction whatever follows the last bar.
++        if (CODE39_OK == code39_decode(p_capture->widths, p_capture->count,
++                                       &symbol, &b_reversed))
++        {
++            p_capture->b_early = true;
++            break;
++        }
++
+         for (uint32_t idx = 0u; idx < p_capture->count; idx++)
+         {
+             widest = (p_capture->widths[idx] > widest) ?
+@@ -221,6 +356,33 @@ capture (capture_t * p_capture)
+ }
+ 
+ 
++/*!
++ * @brief Wait out the quiet zone after an early decode, discarding edges.
++ *
++ * @par
++ * A capture that ends on a decode leaves the trailing edges of the label
++ * (its last quiet zone and the edge of the paper) still to come.  Left
++ * alone they would start a new capture and be rejected as too short.  So
++ * the task stays here until BARCODE_QUIET_MS passes with no edge, dropping
++ * whatever arrives, before it returns to IDLE.
++ */
++static void
++settle (void)
++{
++    capture_t scratch;
++    bool      b_quiet = false;
++
++    while (!b_quiet)
++    {
++        // BARCODE_QUIET_MS is a small positive constant: the cast is exact.
++        b_quiet = (E_TMOUT == tk_slp_tsk((TMO) BARCODE_QUIET_MS));
++    }
++
++    scratch.count = 0u;
++    (void) drain(&scratch, true);  // Empties the FIFO; contents not needed.
++}
++
++
+ /*!
+  * @brief Move FIFO entries into the capture.
+  *
+@@ -230,8 +392,8 @@ capture (capture_t * p_capture)
+  * @return The updated "no entry taken yet" flag.
+  *
+  * @par
+- * The first entry of a capture is the quiet zone before the first bar: it
+- * is not stored, but the level after it must be black.
++ * The first entry of a capture is the surface before the first edge, so it
++ * is not stored.  code39_decode() finds the frame among the rest.
+  */
+ static bool
+ drain (capture_t * p_capture, bool b_first)
+@@ -245,8 +407,7 @@ drain (capture_t * p_capture, bool b_first)
+ 
+         if (b_still_first)
+         {
+-            p_capture->b_started_on_bar = (0u != (entry & ENTRY_BLACK_BIT));
+-            b_still_first               = false;
++            b_still_first = false;
+         }
+         else if (p_capture->count < MAX_ELEMENTS)
+         {
+@@ -394,40 +555,105 @@ to_reject (code39_result_t result)
+ }
+ 
+ 
++#if (1 == DEBUG_MON)
+ /*!
+- * @brief GPIO handler for the barcode sensor (interrupt context).
++ * @brief Print the element widths of a capture on the USB console.
+  *
+- * @param[in] pin      PIN_IR_BARCODE_DO.
+- * @param[in] edges    GPIO_IRQ_EDGE_* bits.
+- * @param[in] time_us  Interrupt entry time.
+- * @param[in] levels   Pin levels at interrupt entry.
++ * @param[in] p_capture  The finished capture.
+  *
+  * @par
+- * Stores one FIFO entry and wakes the task.  Two coalesced edges mean an
+- * element was lost, which is recorded as an overflow so the capture is
+- * rejected rather than decoded wrongly.
++ * Bench aid (DEBUG_MON=1 builds only).  Widths are in milliseconds and
++ * alternate bar, space, bar... when the capture began on a bar.
+  */
+ static void
+-barcode_edge_isr (uint32_t pin, uint32_t edges, uint32_t time_us,
+-                  uint32_t levels)
++dump_capture (capture_t const * p_capture)
+ {
+-    uint32_t const ticks   = (time_us - g_last_edge_us) / TICK_US;
+-    uint32_t const level   = (levels >> pin) & 1u;
+-    bool const     b_black = (IR_DO_BLACK_IS_HIGH == level);
+-    uint32_t const next    = (g_fifo_head + 1u) % BARCODE_FIFO_SLOTS;
+-    uint32_t       entry   = (ticks > ENTRY_WIDTH_MASK) ? ENTRY_WIDTH_MASK :
+-                                                          ticks;
++    // (UB *): string literal to the monitor API's character type.
++    (void) tm_printf((UB *) "cap %lu elements%s:", p_capture->count,
++                     p_capture->b_early ? " (decoded)" : "");
+ 
+-    g_last_edge_us = time_us;
++    for (uint32_t idx = 0u; idx < p_capture->count; idx++)
++    {
++        // (UB *): string literal to the monitor API's character type.
++        (void) tm_printf((UB *) " %lu",
++                         (p_capture->widths[idx] * TICK_US) / US_PER_MS);
++    }
+ 
+-    if (b_black)
++    // (UB *): string literal to the monitor API's character type.
++    (void) tm_printf((UB *) "\n");
++
++#if BARCODE_SENSOR_ANALOGUE
++    if (p_capture->count >= 10u)
+     {
+-        entry |= ENTRY_BLACK_BIT;
++        dump_trace();
+     }
++#endif
++}
+ 
+-    if ((GPIO_IRQ_EDGE_RISING | GPIO_IRQ_EDGE_FALLING) == edges)
++
++#if BARCODE_SENSOR_ANALOGUE
++/*!
++ * @brief Print the darkness trace, oldest first, one sample in four.
++ */
++static void
++dump_trace (void)
++{
++    uint32_t idx = 0u;
++
++    gb_trace_frozen = true;       // The ISR stops writing; order is stable.
++    idx             = g_trace_head;  // Oldest sample.
++
++    // (UB *): string literal to the monitor API's character type.
++    (void) tm_printf((UB *) "trace %lu samples at %lu Hz:\n",
++                     TRACE_SAMPLES / TRACE_DECIMATE,
++                     IR_SAMPLE_HZ / TRACE_DECIMATE);
++
++    for (uint32_t num = 0u; num < (TRACE_SAMPLES / TRACE_DECIMATE); num++)
+     {
+-        g_overflow_count++;
++        bool const b_line_end = (0u == ((num + 1u) % TRACE_PER_LINE));
++
++        // (UB *): string literal to the monitor API's character type.
++        (void) tm_printf((UB *) "%lu%s", (uint32_t) g_trace[idx],
++                         b_line_end ? "\n" : " ");
++        idx = (idx + TRACE_DECIMATE) % TRACE_SAMPLES;
++
++        if (b_line_end)
++        {
++            (void) tk_dly_tsk(TRACE_LINE_PAUSE_MS);  // Cannot fail here.
++        }
++    }
++
++    // (UB *): string literal to the monitor API's character type.
++    (void) tm_printf((UB *) "end trace\n");
++    gb_trace_frozen = false;
++}
++#endif
++#endif
++
++
++/*!
++ * @brief Record one black/white edge for the Barcode task.
++ *
++ * @param[in] time_us  Time of the edge.
++ * @param[in] b_black  true if the surface is black from this edge on.
++ *
++ * @par
++ * Interrupt context.  The entry holds the width of the element that has
++ * just ended, in TICK_US units, and the colour that starts now.
++ */
++static void
++push_edge (uint32_t time_us, bool b_black)
++{
++    uint32_t const ticks = (time_us - g_last_edge_us) / TICK_US;
++    uint32_t const next  = (g_fifo_head + 1u) % BARCODE_FIFO_SLOTS;
++    uint32_t       entry = (ticks > ENTRY_WIDTH_MASK) ? ENTRY_WIDTH_MASK :
++                                                        ticks;
++
++    g_last_edge_us = time_us;
++
++    if (b_black)
++    {
++        entry |= ENTRY_BLACK_BIT;
+     }
+ 
+     if (next == g_fifo_tail)
+@@ -443,5 +669,255 @@ barcode_edge_isr (uint32_t pin, uint32_t edges, uint32_t time_us,
+     (void) tk_wup_tsk(gh_task);  // E_QOVR is benign: the task drains all.
+ }
+ 
++
++#if BARCODE_SENSOR_ANALOGUE
++/*!
++ * @brief ADC interrupt: a pair of conversions is ready.
++ *
++ * @param[in] int_number  Unused: this handler serves one interrupt only.
++ */
++static void
++barcode_adc_isr (UINT int_number)
++{
++    uint32_t raw = 0u;
++
++    (void) int_number;  // Unused: this handler serves one interrupt only.
++
++    if (ir_hw_sampler_take(&raw))
++    {
++        on_sample(raw, board_hw_time_us());
++    }
++}
++
++
++/*!
++ * @brief Turn one barcode conversion into black/white edges.
++ *
++ * @param[in] raw      ADC reading.
++ * @param[in] time_us  Time of the reading.
++ *
++ * @par
++ * The reading is first turned into darkness, so black is always the high
++ * side.  The white level follows the lowest darkness of the current white
++ * element and the black level the highest darkness seen recently.  A bar is
++ * noticed when the darkness climbs an eighth of that contrast above white
++ * and ends when it drops below half of the bar's own height.  Both edges
++ * are then recorded at that half-height level, the start by looking back
++ * through the recent samples, so a bar narrower than the sensor's spot,
++ * which never reaches full black, is still measured at its true width and
++ * the spaces beside it are not stretched.  With no contrast (plain surface)
++ * no edges are produced at all.
++ */
++static void
++on_sample (uint32_t raw, uint32_t time_us)
++{
++    uint32_t const    now  = (0u != IR_AO_BLACK_IS_HIGH) ?
++                             raw : (IR_HW_ADC_MAX - raw);
++    sampler_t * const p_s  = &g_sampler;
++    uint32_t          dark = 0u;
++
++    if (!p_s->b_started)
++    {
++        p_s->valley        = now;
++        p_s->peak_env      = now;
++        p_s->bar_peak      = now;
++        p_s->sample_idx    = 0u;
++        p_s->bar_peak_idx  = 0u;
++        p_s->last_fall_idx = 0u;
++        p_s->prev1         = now;
++        p_s->prev2         = now;
++        p_s->box_sum       = BOX_LEN * now;
++        p_s->box_pos       = 0u;
++        p_s->b_black       = false;
++        p_s->b_started     = true;
++
++        for (uint32_t pos = 0u; pos < BOX_LEN; pos++)
++        {
++            p_s->box[pos] = now;
++        }
++    }
++
++    dark = filter_sample(p_s, now);
++
++    g_history[p_s->sample_idx % BARCODE_HISTORY] = (uint16_t) dark;  // 12 bits.
++
++    if (dark > p_s->peak_env)
++    {
++        p_s->peak_env = dark;
++    }
++    else
++    {
++        p_s->peak_env -= (p_s->peak_env - dark) >> BARCODE_DECAY_SHIFT;
++    }
++
++    if (p_s->b_black)
++    {
++        uint32_t const mid = p_s->valley + ((p_s->bar_peak - p_s->valley) / 2u);
++
++        if (dark > p_s->bar_peak)
++        {
++            p_s->bar_peak     = dark;
++            p_s->bar_peak_idx = p_s->sample_idx;
++        }
++
++        if (dark < mid)
++        {
++            end_bar(p_s, mid, time_us);
++            p_s->valley = dark;
++        }
++    }
++    else
++    {
++        uint32_t span = 0u;
++
++        if (dark < p_s->valley)
++        {
++            p_s->valley = dark;
++        }
++        else
++        {
++            p_s->valley += (dark - p_s->valley) >> BARCODE_DECAY_SHIFT;
++        }
++
++        span = p_s->peak_env - p_s->valley;
++
++        if ((span >= BARCODE_MIN_SPAN) &&
++            (dark > (p_s->valley + (span >> BARCODE_ENTER_SHIFT))))
++        {
++            p_s->b_black      = true;
++            p_s->bar_peak     = dark;
++            p_s->bar_peak_idx = p_s->sample_idx;
++        }
++    }
++
++    p_s->sample_idx++;
++
++    g_dbg_dark  = dark;
++    g_dbg_white = p_s->valley;
++    g_dbg_black = p_s->peak_env;
++
++#if (1 == DEBUG_MON)
++    if (!gb_trace_frozen)
++    {
++        g_trace[g_trace_head] = (uint16_t) dark;  // 12-bit value: exact.
++        g_trace_head          = (g_trace_head + 1u) % TRACE_SAMPLES;
++    }
++#endif
++}
++
++
++/*!
++ * @brief Record both edges of a bar that has just ended.
++ *
++ * @param[in,out] p_s      Edge finder state.
++ * @param[in]     mid      Half-height level of the bar (darkness).
++ * @param[in]     time_us  Time of the sample that fell below it.
++ *
++ * @par
++ * The bar's start is where the darkness first climbed past the same level:
++ * walk back from the peak through the history, no further than the previous
++ * bar's end.
++ */
++static void
++end_bar (sampler_t * p_s, uint32_t mid, uint32_t time_us)
++{
++    uint32_t       back  = p_s->sample_idx - p_s->bar_peak_idx;
++    uint32_t const since = p_s->sample_idx - p_s->last_fall_idx;
++    uint32_t const limit = (since < (BARCODE_HISTORY - 1u)) ?
++                           since : (BARCODE_HISTORY - 1u);
++
++    while ((back < limit) &&
++           (g_history[(p_s->sample_idx - back - 1u) % BARCODE_HISTORY] >= mid))
++    {
++        back++;
++    }
++
++    p_s->b_black = false;
++
++    // Too short, or too faint against the contrast seen so far, is noise.
++    if ((back >= MIN_BAR_SAMPLES) &&
++        ((p_s->bar_peak - p_s->valley) >=
++         ((p_s->peak_env - p_s->valley) >> BARCODE_ACCEPT_SHIFT)))
++    {
++        push_edge(time_us - (back * US_PER_SAMPLE), true);
++        push_edge(time_us, false);
++        p_s->last_fall_idx = p_s->sample_idx;
++    }
++}
++
++
++/*!
++ * @brief Smooth one darkness reading.
++ *
++ * @param[in,out] p_s  Edge finder state (filter memory).
++ * @param[in]     now  Raw darkness.
++ *
++ * @return Filtered darkness.
++ *
++ * @par
++ * A single-sample spike cannot pass the 3-sample median; the running
++ * average of BARCODE_AVERAGE samples then cuts the remaining noise, at a
++ * cost of half that many samples of delay.
++ */
++static uint32_t
++filter_sample (sampler_t * p_s, uint32_t now)
++{
++    uint32_t const med = median3(p_s->prev2, p_s->prev1, now);
++
++    p_s->prev2 = p_s->prev1;
++    p_s->prev1 = now;
++
++    p_s->box_sum          -= p_s->box[p_s->box_pos];
++    p_s->box[p_s->box_pos] = med;
++    p_s->box_sum          += med;
++    p_s->box_pos           = (p_s->box_pos + 1u) % BOX_LEN;
++
++    return (p_s->box_sum / BOX_LEN);
++}
++
++
++/*!
++ * @brief Median of three values.
++ *
++ * @param[in] a_val  First value.
++ * @param[in] b_val  Second value.
++ * @param[in] c_val  Third value.
++ *
++ * @return The middle value.
++ */
++static uint32_t
++median3 (uint32_t a_val, uint32_t b_val, uint32_t c_val)
++{
++    uint32_t const hi_ab = (a_val > b_val) ? a_val : b_val;
++    uint32_t const lo_ab = (a_val > b_val) ? b_val : a_val;
++    uint32_t const mid   = (c_val > hi_ab) ? hi_ab :
++                           ((c_val < lo_ab) ? lo_ab : c_val);
++
++    return (mid);
++}
++#else
++/*!
++ * @brief GPIO interrupt: one edge of the digital barcode output.
++ *
++ * @param[in] pin      PIN_IR_BARCODE_DO.
++ * @param[in] edges    GPIO_IRQ_EDGE_* bits.
++ * @param[in] time_us  Time of the edge.
++ * @param[in] levels   Pin levels at that time.
++ */
++static void
++barcode_edge_isr (uint32_t pin, uint32_t edges, uint32_t time_us,
++                  uint32_t levels)
++{
++    uint32_t const level = (levels >> pin) & 1u;
++
++    if ((GPIO_IRQ_EDGE_RISING | GPIO_IRQ_EDGE_FALLING) == edges)
++    {
++        g_overflow_count++;  // Both edges in one interrupt: a pulse lost.
++    }
++
++    push_edge(time_us, (IR_DO_BLACK_IS_HIGH == level));
++}
++#endif
++
+ /*** end of file ***/
+ 
+diff --git a/app_program/buddy3_line/barcode.h b/app_program/buddy3_line/barcode.h
+index 529949e..b1de316 100644
+--- a/app_program/buddy3_line/barcode.h
++++ b/app_program/buddy3_line/barcode.h
+@@ -72,6 +72,8 @@ typedef enum
+ 
+ int32_t  barcode_start(void);
+ uint32_t barcode_msg_letter(uint8_t msg);
++void     barcode_debug_levels(uint32_t * p_dark, uint32_t * p_white,
++                              uint32_t * p_black);
+ 
+ #endif /* BARCODE_H */
+ 
+diff --git a/app_program/buddy3_line/code39.c b/app_program/buddy3_line/code39.c
+index f7282b4..40ebc94 100644
+--- a/app_program/buddy3_line/code39.c
++++ b/app_program/buddy3_line/code39.c
+@@ -19,8 +19,8 @@
+ #define WIDE_PER_CHAR           3u
+ #define CHAR_STRIDE             (CODE39_ELEMENTS_PER_CHAR + 1u)
+ #define TABLE_SIZE              44u
+-#define RATIO_NUMERATOR         3u
+-#define RATIO_DENOMINATOR       2u
++#define RATIO_NUMERATOR         13u     // Wide must be >= 1.3 x narrow.
++#define RATIO_DENOMINATOR       10u     // (Was 1.5; blur widens narrow bars.)
+ #define FRAME_SYMBOL            ((uint8_t) '*')   // ASCII 42: exact.
+ #define FIRST_LETTER            ((uint8_t) 'A')   // ASCII 65: exact.
+ #define LAST_LETTER             ((uint8_t) 'Z')   // ASCII 90: exact.
+@@ -94,7 +94,7 @@ static code39_result_t classify(uint32_t const * p_elements,
+ 
+ 
+ /*!
+- * @brief Decode a 29-element capture into its data letter.
++ * @brief Find and decode a 29-element frame in a capture.
+  *
+  * @param[in]  p_widths      Element widths in capture order, starting with
+  *                           the first bar (any time unit).
+@@ -112,16 +112,25 @@ code39_decode (uint32_t const * p_widths, uint32_t count, uint8_t * p_symbol,
+ 
+     *p_b_reversed = false;
+ 
+-    if (CODE39_FRAME_ELEMENTS == count)
++    // Stray edges before or after the barcode (such as the edge of its paper)
++    // only add elements, so try the frame at each position.  The reason
++    // reported on failure is that of the first position.
++    for (uint32_t start = 0u; (CODE39_OK != result) &&
++         ((start + CODE39_FRAME_ELEMENTS) <= count); start++)
+     {
+-        result = decode_frame(p_widths, p_symbol);
++        code39_result_t attempt = decode_frame(&p_widths[start], p_symbol);
+ 
+-        if ((CODE39_OK != result) &&
+-            (CODE39_OK == decode_reversed(p_widths, p_symbol)))
++        if ((CODE39_OK != attempt) &&
++            (CODE39_OK == decode_reversed(&p_widths[start], p_symbol)))
+         {
+-            result        = CODE39_OK;
++            attempt       = CODE39_OK;
+             *p_b_reversed = true;
+         }
++
++        if ((0u == start) || (CODE39_OK == attempt))
++        {
++            result = attempt;
++        }
+     }
+ 
+     return (result);
+diff --git a/app_program/buddy3_line/code39.h b/app_program/buddy3_line/code39.h
+index c3439b0..595ade9 100644
+--- a/app_program/buddy3_line/code39.h
++++ b/app_program/buddy3_line/code39.h
+@@ -36,7 +36,7 @@
+ typedef enum
+ {
+     CODE39_OK = 0,
+-    CODE39_BAD_COUNT,       // Not 29 elements.
++    CODE39_BAD_COUNT,       // Fewer than 29 elements.
+     CODE39_BAD_RATIO,       // Wide and narrow elements not separable.
+     CODE39_NO_MATCH,        // A pattern is not a Code 39 character.
+     CODE39_BAD_FRAME        // Not of the form *X* with X in A..Z.
+diff --git a/app_program/buddy3_line/ir_hw.c b/app_program/buddy3_line/ir_hw.c
+index 152c75f..553108a 100644
+--- a/app_program/buddy3_line/ir_hw.c
++++ b/app_program/buddy3_line/ir_hw.c
+@@ -18,6 +18,26 @@
+ #include "robot_cfg.h"
+ #include "ir_hw.h"
+ 
++#define ADC_CLOCK_HZ            48000000u
++#define INPUTS_SAMPLED          2u          // Centre and barcode.
++#define FIFO_PAIR               2u          // Interrupt once both are in.
++#define SAMPLE_MASK             0x0FFFu     // 12-bit conversion result.
++
++#if BARCODE_SENSOR_ANALOGUE
++_Static_assert(IR_HW_ADC_IRQ_NUM == ADC_IRQ_FIFO,
++               "IR_HW_ADC_IRQ_NUM must match the SDK ADC_IRQ_FIFO");
++
++// Latest conversions, written by the ADC interrupt (single aligned stores).
++static uint32_t volatile g_centre_raw  = 0u;
++static uint32_t volatile g_barcode_raw = 0u;
++
++// Diagnostics: interrupts served and FIFO overruns seen.
++static uint32_t volatile g_take_calls  = 0u;
++static uint32_t volatile g_overruns    = 0u;
++
++static uint32_t other_input(uint32_t input);
++#endif
++
+ static bool level_means_black(bool b_level);
+ 
+ 
+@@ -35,9 +55,24 @@ ir_hw_init (void)
+     gpio_init(PIN_IR_LEFT_DO);
+     gpio_set_dir(PIN_IR_LEFT_DO, GPIO_IN);
+     gpio_disable_pulls(PIN_IR_LEFT_DO);
++
++#if BARCODE_SENSOR_ANALOGUE
++    adc_gpio_init(PIN_IR_BARCODE_AO);
++    adc_set_round_robin((1u << ADC_INPUT_IR_CENTRE) |
++                        (1u << ADC_INPUT_IR_BARCODE));
++
++    // One conversion every (DIV.INT + 1) ADC clocks, shared by both inputs.
++    adc_hw->div = ((ADC_CLOCK_HZ / (IR_SAMPLE_HZ * INPUTS_SAMPLED)) - 1u)
++                  << ADC_DIV_INT_LSB;
++    adc_fifo_setup(true, false, FIFO_PAIR, false, false);
++    adc_fifo_drain();
++    adc_irq_set_enabled(true);  // The NVIC side is enabled by the kernel.
++    adc_run(true);
++#else
+     gpio_init(PIN_IR_BARCODE_DO);
+     gpio_set_dir(PIN_IR_BARCODE_DO, GPIO_IN);
+     gpio_disable_pulls(PIN_IR_BARCODE_DO);
++#endif
+ }
+ 
+ 
+@@ -49,9 +84,13 @@ ir_hw_init (void)
+ uint32_t
+ ir_hw_read_centre (void)
+ {
++#if BARCODE_SENSOR_ANALOGUE
++    return (g_centre_raw);
++#else
+     adc_select_input(ADC_INPUT_IR_CENTRE);
+ 
+     return (adc_read());
++#endif
+ }
+ 
+ 
+@@ -75,8 +114,151 @@ ir_hw_is_left_black (void)
+ bool
+ ir_hw_is_barcode_black (void)
+ {
++#if BARCODE_SENSOR_ANALOGUE
++    // Rough indication for the bench display only: the Barcode task finds
++    // the real edges from the contrast it has seen.
++    bool const b_high = g_barcode_raw > (IR_HW_ADC_MAX / 2u);
++
++    return (b_high == (0u != IR_AO_BLACK_IS_HIGH));
++#else
+     return (level_means_black(gpio_get(PIN_IR_BARCODE_DO)));
++#endif
++}
++
++
++#if BARCODE_SENSOR_ANALOGUE
++/*!
++ * @brief Take the finished conversions out of the ADC FIFO.
++ *
++ * @param[out] p_barcode_raw  Latest barcode conversion, if any arrived.
++ *
++ * @return true if a barcode conversion was taken.
++ *
++ * @par
++ * Runs in the ADC interrupt.  The FIFO does not say which input a result
++ * came from, but round robin alternates the two inputs and CS.AINSEL names
++ * the input of the conversion now in progress, so the entries are assigned
++ * by walking back from it.  If results were lost (FIFO overrun) that walk
++ * is no longer reliable, so the FIFO is emptied and the batch dropped.
++ */
++bool
++ir_hw_sampler_take (uint32_t * p_barcode_raw)
++{
++    bool b_barcode = false;
++
++    g_take_calls++;
++
++    if (0u != (adc_hw->fcs & ADC_FCS_OVER_BITS))
++    {
++        g_overruns++;
++        adc_fifo_drain();
++        // OVER and UNDER clear when written with 1; the other fields are
++        // written back unchanged.
++        adc_hw->fcs = adc_hw->fcs | ADC_FCS_OVER_BITS | ADC_FCS_UNDER_BITS;
++    }
++    else
++    {
++        uint32_t level = 0u;
++        uint32_t again = 0u;
++        uint32_t next  = 0u;
++        uint32_t input = 0u;
++
++        // A conversion may finish between the two reads: retry until the
++        // level and the selected input belong to the same moment.
++        level = adc_fifo_get_level();
++        next  = (adc_hw->cs & ADC_CS_AINSEL_BITS) >> ADC_CS_AINSEL_LSB;
++        again = adc_fifo_get_level();
++
++        while (level != again)
++        {
++            level = again;
++            next  = (adc_hw->cs & ADC_CS_AINSEL_BITS) >> ADC_CS_AINSEL_LSB;
++            again = adc_fifo_get_level();
++        }
++
++        input = (0u == (level % INPUTS_SAMPLED)) ? next : other_input(next);
++
++        for (; level > 0u; level--)
++        {
++            // Widening cast of the 16-bit FIFO entry; only 12 bits are data.
++            uint32_t const value = (uint32_t) adc_fifo_get() & SAMPLE_MASK;
++
++            if (ADC_INPUT_IR_CENTRE == input)
++            {
++                g_centre_raw = value;
++            }
++            else
++            {
++                g_barcode_raw  = value;
++                *p_barcode_raw = value;
++                b_barcode      = true;
++            }
++
++            input = other_input(input);
++        }
++    }
++
++    return (b_barcode);
++}
++
++
++/*!
++ * @brief Sampler diagnostics for the debug monitor.
++ *
++ * @param[out] p_calls     Interrupts served since boot.
++ * @param[out] p_overruns  FIFO overruns seen since boot.
++ */
++void
++ir_hw_sampler_stats (uint32_t * p_calls, uint32_t * p_overruns)
++{
++    *p_calls    = g_take_calls;
++    *p_overruns = g_overruns;
++}
++
++
++/*!
++ * @brief The other input of the round-robin pair.
++ *
++ * @param[in] input  ADC input number.
++ *
++ * @return The barcode input for the centre input, and vice versa.
++ */
++static uint32_t
++other_input (uint32_t input)
++{
++    return ((ADC_INPUT_IR_CENTRE == input) ? ADC_INPUT_IR_BARCODE :
++                                             ADC_INPUT_IR_CENTRE);
++}
++#else
++/*!
++ * @brief Digital barcode input: there are no conversions to take.
++ *
++ * @param[out] p_barcode_raw  Left unchanged.
++ *
++ * @return false.
++ */
++bool
++ir_hw_sampler_take (uint32_t * p_barcode_raw)
++{
++    (void) p_barcode_raw;  // Unused: the digital output has no samples.
++
++    return (false);
++}
++
++
++/*!
++ * @brief Digital barcode input: no sampler, so no statistics.
++ *
++ * @param[out] p_calls     Set to 0.
++ * @param[out] p_overruns  Set to 0.
++ */
++void
++ir_hw_sampler_stats (uint32_t * p_calls, uint32_t * p_overruns)
++{
++    *p_calls    = 0u;
++    *p_overruns = 0u;
+ }
++#endif
+ 
+ 
+ /*!
+diff --git a/app_program/buddy3_line/ir_hw.h b/app_program/buddy3_line/ir_hw.h
+index f0dd2d2..05472ac 100644
+--- a/app_program/buddy3_line/ir_hw.h
++++ b/app_program/buddy3_line/ir_hw.h
+@@ -1,10 +1,13 @@
+ /** @file ir_hw.h
+  *
+  * @brief TCRT5000 IR sensor inputs: centre analogue (GP27, ADC1), left
+- *        digital (GP3) and barcode digital (GP28).
++ *        digital (GP3) and barcode analogue (GP28, ADC2) or digital (GP28).
+  *
+  * @par
+- * Owner: Buddy 3.  The ADC is used only by the Line Following task.
++ * Owner: Buddy 3.  With BARCODE_SENSOR_ANALOGUE the ADC free-runs over the
++ * centre and barcode inputs and raises IR_HW_ADC_IRQ_NUM when a pair of
++ * conversions is ready; ir_hw_sampler_take() is called from that interrupt
++ * and ir_hw_read_centre() returns the latest centre conversion.
+  *
+  * @par
+  * COPYRIGHT NOTICE: (c) 2026 AAI03 team, INF2004.  All rights reserved.
+@@ -19,10 +22,15 @@
+ // Largest raw ADC reading (12-bit converter).
+ #define IR_HW_ADC_MAX               4095u
+ 
++// RP2040 ADC FIFO interrupt (checked against the SDK in ir_hw.c).
++#define IR_HW_ADC_IRQ_NUM           22u
++
+ void     ir_hw_init(void);
+ uint32_t ir_hw_read_centre(void);
+ bool     ir_hw_is_left_black(void);
+ bool     ir_hw_is_barcode_black(void);
++bool     ir_hw_sampler_take(uint32_t * p_barcode_raw);
++void     ir_hw_sampler_stats(uint32_t * p_calls, uint32_t * p_overruns);
+ 
+ #endif /* IR_HW_H */
+ 
+diff --git a/app_program/buddy3_line/line_follow.c b/app_program/buddy3_line/line_follow.c
+index bc1377f..8d14383 100644
+--- a/app_program/buddy3_line/line_follow.c
++++ b/app_program/buddy3_line/line_follow.c
+@@ -252,7 +252,10 @@ line_follow_end_calibration (void)
+ 
+ 
+ /*!
+- * @brief Release the held JUNCTION once Vehicle Control has acted on it.
++ * @brief Tell the line task that Vehicle Control is following again.
++ *
++ * @par
++ * Releases a held JUNCTION and restarts line-loss detection.
+  */
+ void
+ line_follow_clear_junction (void)
+@@ -402,6 +405,17 @@ update_events (int32_t norm, bool b_left_black)
+     bool const b_both_black = b_left_black && (norm > NORM_BLACK);
+     bool const b_both_white = (!b_left_black) && (norm < NORM_WHITE);
+ 
++    // Vehicle Control has resumed following.  Start again from TRACKING with
++    // fresh timers, so time spent off the line during a manoeuvre does not
++    // count as line loss, and a real loss is always reported again.
++    if (g_clear_seq != g_clear_done)
++    {
++        g_clear_done      = g_clear_seq;
++        g_ctx.state       = LINE_STATE_TRACKING;
++        g_ctx.junction_ms = 0u;
++        g_ctx.lost_ms     = 0u;
++    }
++
+     g_ctx.junction_ms = b_both_black ? (g_ctx.junction_ms + MS_PER_PERIOD) :
+                                        0u;
+     g_ctx.lost_ms     = b_both_white ? (g_ctx.lost_ms + MS_PER_PERIOD) : 0u;
+@@ -413,8 +427,7 @@ update_events (int32_t norm, bool b_left_black)
+         case LINE_STATE_TRACKING:
+             if (g_ctx.junction_ms >= LINE_JUNCTION_MS)
+             {
+-                g_ctx.state  = LINE_STATE_JUNCTION;
+-                g_clear_done = g_clear_seq;
++                g_ctx.state = LINE_STATE_JUNCTION;
+                 robot_ipc_flag_set(ROBOT_IPC_FLAG_VEHICLE,
+                                    ROBOT_EVT_JUNCTION);
+             }
+@@ -433,11 +446,6 @@ update_events (int32_t norm, bool b_left_black)
+ 
+         case LINE_STATE_JUNCTION:
+             // Held until Vehicle Control has executed the junction action.
+-            if (g_clear_seq != g_clear_done)
+-            {
+-                g_clear_done = g_clear_seq;
+-                g_ctx.state  = LINE_STATE_TRACKING;
+-            }
+         break;
+ 
+         case LINE_STATE_SEARCHING:
+diff --git a/app_program/buddy5_obstacle/obstacle.c b/app_program/buddy5_obstacle/obstacle.c
+index 12b8019..100b4f8 100644
+--- a/app_program/buddy5_obstacle/obstacle.c
++++ b/app_program/buddy5_obstacle/obstacle.c
+@@ -20,6 +20,7 @@
+ #include "sys_status.h"
+ #include "bitpack.h"
+ #include "telemetry.h"
++#include "motion.h"
+ #include "servo_hw.h"
+ #include "ultrasonic.h"
+ #include "obs_profile.h"
+@@ -64,6 +65,7 @@ static uint64_t            g_stack[STACK_MEDIUM / sizeof(uint64_t)];
+ 
+ static void obstacle_task(INT start_code, void * p_ext_info);
+ static void monitor_once(void);
++static bool is_turning_or_braking(void);
+ static void run_scan(void);
+ static void measure_at(uint32_t angle_deg, uint32_t settle_ms);
+ static void note_result(ultrasonic_result_t result);
+@@ -192,7 +194,15 @@ monitor_once (void)
+ 
+     note_result(result);
+ 
+-    if ((ULTRASONIC_OK == result) && (distance_mm < OBSTACLE_DETECT_MM))
++    if (is_turning_or_braking())
++    {
++        // The sensor sweeps past the floor and nearby objects while turning.
++        // Such readings are not obstacles on the path, so none may count.
++        // An obstacle already reported stays reported: clearing it here
++        // would make the same obstacle raise a second event after the stop.
++        g_ctx.near_count = 0u;
++    }
++    else if ((ULTRASONIC_OK == result) && (distance_mm < OBSTACLE_DETECT_MM))
+     {
+         g_ctx.front_cm = distance_mm / MM_PER_CM;
+         g_ctx.near_count++;
+@@ -235,6 +245,22 @@ monitor_once (void)
+ }
+ 
+ 
++/*!
++ * @brief Report whether the robot is turning or stopping after a turn.
++ *
++ * @return true in MOTION_MODE_TURNING or MOTION_MODE_BRAKING.
++ */
++static bool
++is_turning_or_braking (void)
++{
++    uint32_t const mode = bitpack_word_get(sys_status_read(SYS_STATUS_MOTION),
++                                           MOTION_MODE_SHIFT,
++                                           MOTION_MODE_WIDTH);
++
++    return ((MOTION_MODE_TURNING == mode) || (MOTION_MODE_BRAKING == mode));
++}
++
++
+ /*!
+  * @brief SCAN_REQ: coarse scan, fine scan, profile and plan.
+  */
+diff --git a/app_program/integration/debug_mon.c b/app_program/integration/debug_mon.c
+index ec55006..3016390 100644
+--- a/app_program/integration/debug_mon.c
++++ b/app_program/integration/debug_mon.c
+@@ -22,6 +22,8 @@
+ #include "bitpack.h"
+ #include "line_follow.h"
+ #include "barcode.h"
++#include "ir_hw.h"
++#include "app_main.h"
+ #include "motion.h"
+ #include "imu.h"
+ #include "obstacle.h"
+@@ -338,6 +340,22 @@ print_status (void)
+         (void) tm_printf((UB *) "%lu cm", dist);
+     }
+ 
++    {
++        uint32_t dark  = 0u;
++        uint32_t white = 0u;
++        uint32_t black = 0u;
++
++        uint32_t calls    = 0u;
++        uint32_t overruns = 0u;
++
++        barcode_debug_levels(&dark, &white, &black);
++        ir_hw_sampler_stats(&calls, &overruns);
++        // (UB *): string literal to the monitor API's character type.
++        (void) tm_printf((UB *) " | bc d%4lu w%4lu b%4lu adc n%lu ov%lu "
++                         "boot%02lx", dark, white, black, calls, overruns,
++                         app_main_boot_failures());
++    }
++
+     // (UB *): string literal to the monitor API's character type.
+     (void) tm_printf((UB *) " | faults 0x%02lx\n", robot_ipc_faults());
+ }
+diff --git a/app_program/integration/vehicle.c b/app_program/integration/vehicle.c
+index c781af1..02577e6 100644
+--- a/app_program/integration/vehicle.c
++++ b/app_program/integration/vehicle.c
+@@ -36,6 +36,7 @@
+ 
+ #define WAIT_MS                 50
+ #define US_PER_MS               1000u
++#define FOLLOW_SLOW_MS          600u    // Slow start after every turn.
+ #define MAX_STEPS               8u
+ #define CALIB_SWEEP_DEG         25
+ #define SWEEP_UNIT_DEG          30
+@@ -68,6 +69,21 @@
+ #define SAFETY_EVENTS           (ROBOT_EVT_IMPACT | ROBOT_EVT_STALL | \
+                                  ROBOT_EVT_ECHO_FAULT)
+ 
++// Bench build only (make ... BENCH_NO_IMU=1): start without a working IMU so
++// the other subsystems can be tested.  The IMU fault stays raised and is
++// still reported over USB and MQTT; only the start-up check ignores it.
++// Hump height and impact detection do not work in this build.  Never use it
++// for the mission.
++#ifndef BENCH_NO_IMU
++#define BENCH_NO_IMU            0
++#endif
++
++#if BENCH_NO_IMU
++#define START_FAULTS            0u
++#else
++#define START_FAULTS            ROBOT_FAULT_IMU
++#endif
++
+ /*!
+  * @brief Kinds of manoeuvre step.
+  */
+@@ -100,6 +116,7 @@ typedef struct
+     uint32_t         step_index;
+     bool             b_steps_running;
+     bool             b_scan_requested;
++    bool             b_follow_slow;     // Still in the slow start of following.
+     bool             b_realigning;
+     bool             b_button_down;
+     bool             b_latched;
+@@ -403,7 +420,7 @@ dispatch (uint32_t events)
+             if ((board_hw_time_us() - g_ctx.entered_us) >=
+                 (INIT_SETTLE_MS * US_PER_MS))
+             {
+-                enter((0u != (robot_ipc_faults() & ROBOT_FAULT_IMU)) ?
++                enter((0u != (robot_ipc_faults() & START_FAULTS)) ?
+                       VEHICLE_SAFE_STOP : VEHICLE_READY);
+             }
+         break;
+@@ -423,6 +440,17 @@ dispatch (uint32_t events)
+         break;
+ 
+         case VEHICLE_LINE_FOLLOWING:
++            if ((g_ctx.b_follow_slow) &&
++                ((board_hw_time_us() - g_ctx.entered_us) >=
++                 (FOLLOW_SLOW_MS * US_PER_MS)))
++            {
++                // Settled on the edge: up to the full following speed.
++                // The tuned speed is 30..600, so the cast is exact.
++                g_ctx.b_follow_slow = false;
++                (void) motion_follow_line(
++                           (uint32_t) tune_get(TUNE_SPEED_FOLLOW));
++            }
++
+             on_line_following(events);
+         break;
+ 
+@@ -485,7 +513,15 @@ on_line_following (uint32_t events)
+     }
+     else if (0u != (events & ROBOT_EVT_LINE_LOST))
+     {
+-        begin_reacquire();
++        if ((g_ctx.b_latched) && (NAV_ACTION_UTURN == g_ctx.latched))
++        {
++            // The line ended with a U-turn saved: run it here.
++            begin_junction();
++        }
++        else
++        {
++            begin_reacquire();
++        }
+     }
+     else
+     {
+@@ -694,10 +730,14 @@ follow (void)
+ {
+     line_follow_clear_junction();
+     enter(VEHICLE_LINE_FOLLOWING);
++    // Following begins at the slow speed, because the robot has just come
++    // out of a turn and may still be carrying rotation and a heading error;
++    // dispatch() raises it to the full speed after FOLLOW_SLOW_MS.
+     // The 4-slot command queue cannot be full: this task issues at most two
+     // commands per cycle and Motion Control drains the queue every 10 ms.
+     // The tuned speed is 30..600, so the cast is exact.
+-    (void) motion_follow_line((uint32_t) tune_get(TUNE_SPEED_FOLLOW));
++    g_ctx.b_follow_slow = true;
++    (void) motion_follow_line((uint32_t) tune_get(TUNE_SPEED_SLOW));
+ }
+ 
+ 
+diff --git a/app_program/platform/robot_cfg.h b/app_program/platform/robot_cfg.h
+index 7b71ace..5130a4b 100644
+--- a/app_program/platform/robot_cfg.h
++++ b/app_program/platform/robot_cfg.h
+@@ -72,6 +72,16 @@
+ #define PIN_IR_CENTRE_AO            27u
+ #define ADC_INPUT_IR_CENTRE         1u
+ 
++// Buddy 3: barcode IR module.  Its digital output cannot see a bar narrower
++// than the sensor's spot on the paper, so its analogue output is wired to
++// GP28 (ADC input 2) instead and the firmware finds the edges itself.  Set
++// BARCODE_SENSOR_ANALOGUE to 0u to go back to the digital output on GP28.
++#ifndef BARCODE_SENSOR_ANALOGUE
++#define BARCODE_SENSOR_ANALOGUE     1u
++#endif
++#define PIN_IR_BARCODE_AO           28u
++#define ADC_INPUT_IR_BARCODE        2u
++
+ /* ------------------------------------------------------------------------ */
+ /* Sensor polarity.                                                        */
+ /* ------------------------------------------------------------------------ */
+@@ -90,11 +100,13 @@
+ /* Mechanical dimensions (TBC: measure on the finished chassis).           */
+ /* ------------------------------------------------------------------------ */
+ 
+-// Encoder resolution: 20-slot disc, both edges of channel A counted.
+-#define ENC_EDGES_PER_REV           40u
+-
+-// Wheel circumference 204.2 mm (65 mm wheel) / 40 edges = 5105 um per edge.
+-#define ENC_UM_PER_EDGE             5105u
++// Encoder resolution.  Measured on the robot on 2026-11-02 by pushing it
++// 300 mm: 1693 edges on each wheel, so 177 um per edge.  The encoders are
++// on the motor shaft behind the gearbox, about 1150 edges per wheel
++// revolution, not the 40 of a 20-slot wheel disc.  Re-measure with the
++// live tune (enc_um_per_edge) if wheels or motors change.
++#define ENC_EDGES_PER_REV           1150u
++#define ENC_UM_PER_EDGE             177u
+ 
+ // Distance between the two wheel contact points.
+ #define TRACK_WIDTH_MM              120u
+@@ -146,15 +158,15 @@
+ // MOTOR_MIN_PERMILLE or the wheels may not turn at all.
+ #define MOTOR_MAX_PERMILLE          450u
+ #define MOTOR_FF_PERMILLE_PER_M_S   1300u
+-#define SPEED_FOLLOW_MM_S           150u
++#define SPEED_FOLLOW_MM_S           130u    // Tuned live 2026-11-02.
+ #define SPEED_SLOW_MM_S             100u
+ #define SPEED_TURN_MM_S             100u
+ #define SPEED_MAX_MM_S              600u
+ #define PID_KP_MILLI                1200
+ #define PID_KI_MILLI                400
+ #define PID_KD_MILLI                50
+-#define STEER_KP_MILLI              180
+-#define STEER_KD_MILLI              60
++#define STEER_KP_MILLI              65      // Tuned live 2026-11-02.
++#define STEER_KD_MILLI              110     // Tuned live 2026-11-02.
+ // Steering sign: 1 or -1.  Flip it if the robot steers away from the line
+ // (which edge it follows depends on where the centre sensor is mounted).
+ #define STEER_DIRECTION             1
+@@ -163,7 +175,9 @@
+ // Encoder noise filter: edges closer than this are ignored.  At the top
+ // speed (600 mm/s) real edges are 8.5 ms apart, so 5 ms only drops noise,
+ // such as bursts picked up from the motor wires.
+-#define ENC_MIN_EDGE_US             5000u
++// Edges closer than this are noise.  At 0.18 mm per edge the wheel gives an
++// edge every 1.2 ms at line-following speed, so this must stay well below.
++#define ENC_MIN_EDGE_US             200u
+ #define STOPPED_SPEED_MM_S          20u
+ #define LINE_STALE_MS               50u
+ 
+@@ -175,9 +189,47 @@
+ #define LINE_JUNCTION_MS            20u
+ #define LINE_LOST_MS                150u
+ #define LINE_FOUND_MS               30u
+-#define BARCODE_QUIET_MS            60u
++// Longest gap allowed between edges before a capture ends.  It must exceed
++// the widest element at the slowest reading speed: 400 ms lets a 17 mm bar
++// pass at 45 mm/s (about a third of line-following speed), and once some
++// elements are in the gap grows with them (see barcode.c).
++#define BARCODE_QUIET_MS            400u
+ #define BARCODE_FIFO_SLOTS          64u
+ 
++// Analogue barcode sensing.  Both IR analogue inputs are converted in turn,
++// IR_SAMPLE_HZ times a second each.  A bar needs the black-white contrast
++// seen so far to be at least BARCODE_MIN_SPAN ADC counts.  It is noticed when
++// the reading rises above the white level by that contrast divided by
++// 2^BARCODE_ENTER_SHIFT and ends when the reading falls below half of the
++// bar's own height.  Both of its edges are then placed at that half-height
++// level (the start is found in the last BARCODE_HISTORY samples), so a bar
++// narrower than the sensor's spot, which never reaches full black, still
++// measures at its true width.  The contrast envelope decays by
++// 1/2^BARCODE_DECAY_SHIFT per sample (about 0.5 s).
++#define IR_SAMPLE_HZ                2000u
++#ifndef BARCODE_MIN_SPAN
++#define BARCODE_MIN_SPAN            300u
++#endif
++#ifndef BARCODE_ENTER_SHIFT
++#define BARCODE_ENTER_SHIFT         3u
++#endif
++#define BARCODE_DECAY_SHIFT         10u
++#define BARCODE_HISTORY             1024u
++// Readings pass through a 3-sample median, which removes single-sample
++// spikes, then a BARCODE_AVERAGE-sample running average (16 samples = 8 ms,
++// 4 ms of delay; a narrow bar lasts 37 ms at line-following speed).  A bar
++// is only accepted if it lasted at least BARCODE_MIN_BAR_MS and reached a
++// quarter of the contrast above white.  Overridable for host tests.
++#ifndef BARCODE_AVERAGE
++#define BARCODE_AVERAGE             16u
++#endif
++#ifndef BARCODE_MIN_BAR_MS
++#define BARCODE_MIN_BAR_MS          8u
++#endif
++#ifndef BARCODE_ACCEPT_SHIFT
++#define BARCODE_ACCEPT_SHIFT        2u
++#endif
++
+ /* ------------------------------------------------------------------------ */
+ /* Buddy 4: IMU tuning.                                                    */
+ /* ------------------------------------------------------------------------ */
+@@ -230,10 +282,9 @@
+ #define JUNCTION_ADVANCE_MM         60u
+ 
+ /* ------------------------------------------------------------------------ */
+-/* Buddy 1: MQTT.  Broker address and group are local settings.            */
++/* Buddy 1: MQTT.  MQTT_BROKER_IP is in config/wifi_credentials.h.         */
+ /* ------------------------------------------------------------------------ */
+ 
+-#define MQTT_BROKER_IP              "192.168.1.10"
+ #define MQTT_BROKER_PORT            1883u
+ #define MQTT_CLIENT_ID              "aai03-robot"
+ #define MQTT_TOPIC_ROOT             "inf2004/aai03/"
+diff --git a/app_program/platform/tune.c b/app_program/platform/tune.c
+index 7a41c9e..bfd273f 100644
+--- a/app_program/platform/tune.c
++++ b/app_program/platform/tune.c
+@@ -46,7 +46,7 @@ static tune_range_t const g_ranges[TUNE_COUNT] =
+     { 0, 3000 },        // TUNE_STEER_KP
+     { 0, 3000 },        // TUNE_STEER_KD
+     { -1, 1 },          // TUNE_STEER_DIR (0 rejected below)
+-    { 500, 30000 },     // TUNE_ENC_UM_PER_EDGE
++    { 50, 30000 },      // TUNE_ENC_UM_PER_EDGE
+     { 50, 300 },        // TUNE_TRACK_MM
+     { 0, 500 }          // TUNE_REVERSE_MM
+ };
+diff --git a/build_make/mtkernel_3/app_program/subdir.mk b/build_make/mtkernel_3/app_program/subdir.mk
+index 8be7ceb..41d005e 100644
+--- a/build_make/mtkernel_3/app_program/subdir.mk
++++ b/build_make/mtkernel_3/app_program/subdir.mk
+@@ -1,16 +1,181 @@
+ ################################################################################
+ # micro T-Kernel 3.0 BSP  makefile
++#
++# AAI03 autonomous robot car application.
++#
++# The application is split into two compilation classes because the kernel
++# headers and the Pico SDK hardware headers define the same peripheral base
++# address macros and cannot share a translation unit:
++#
++#   *_hw.c, *_net.c   Hardware / network driver modules.  Include only Pico
++#                     SDK (or lwIP / cyw43) headers, never <tk/tkernel.h>.
++#                     Built as gnu11 because the SDK uses C11 static_assert.
++#   everything else   Kernel-side modules.  Include <tk/tkernel.h> and the
++#                     plain-C driver headers, never an SDK header.  Built as
++#                     strict ISO C99 (Barr-C rule 1.1.a).
++#
++# Both classes are built with -Werror so a warning cannot reach the robot.
+ ################################################################################
+ 
+-TEMP_SRCS = $(wildcard ../app_program/*.c)
+-TEMP_OBJS = $(TEMP_SRCS:.c=.o)
+-TEMP_DEPS = $(TEMP_SRCS:.c=.d)
++APP_ROOT     := ../app_program
++APP_SUBDIRS  := platform buddy1_comms buddy2_motion buddy3_line \
++                buddy4_imu buddy5_obstacle integration
+ 
+-OBJS += $(subst ../, ./mtkernel_3/, $(TEMP_OBJS))
+-C_DEPS += $(subst ../, ./mtkernel_3/, $(TEMP_DEPS))
++# demo_tasks.c is the kernel demo left over from the port: not part of the robot.
++APP_SRCS     := $(filter-out $(APP_ROOT)/demo_tasks.c,$(wildcard $(APP_ROOT)/*.c)) \
++                $(foreach dir,$(APP_SUBDIRS),$(wildcard $(APP_ROOT)/$(dir)/*.c))
++APP_HW_SRCS  := $(filter %_hw.c %_net.c,$(APP_SRCS))
++APP_KNL_SRCS := $(filter-out $(APP_HW_SRCS),$(APP_SRCS))
+ 
+-mtkernel_3/app_program/%.o: ../app_program/%.c
+-	@echo 'Building file: $<'
+-	$(GCC) $(CFLAGS) -D$(TARGET) $(INCPATH) -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
+-	@echo 'Finished building: $<'
+-	@echo ' '
++APP_OBJS     := $(subst ../,./mtkernel_3/,$(APP_SRCS:.c=.o))
++APP_HW_OBJS  := $(subst ../,./mtkernel_3/,$(APP_HW_SRCS:.c=.o))
++APP_KNL_OBJS := $(subst ../,./mtkernel_3/,$(APP_KNL_SRCS:.c=.o))
++
++OBJS   += $(APP_OBJS)
++C_DEPS += $(APP_OBJS:.o=.d)
++
++APP_INCLUDES := -I"$(APP_ROOT)" \
++                $(foreach dir,$(APP_SUBDIRS),-I"$(APP_ROOT)/$(dir)")
++
++# Kernel headers are third-party code: include them as system headers so
++# their own style (for example the non-prototype FP typedef) does not trip
++# the application's -Werror.
++APP_KERNEL_INCLUDES := $(subst -I,-isystem ,$(INCPATH))
++
++# -Wsign-conversion enforces Barr-C rule 5.3.c (no implicit mixing of
++# signed and unsigned values) at compile time.
++APP_WARNINGS := -Wall -Wextra -Werror -Wshadow -Wsign-compare -Wsign-conversion \
++                -Wstrict-prototypes -Wmissing-prototypes
++
++# Bench tests (BUDDY_TEST=3 Buddy 3 alone, 23 Buddy 2 + 3; 0 is the mission),
++# the USB console monitor for the mission (DEBUG_MON=1), and BENCH_NO_IMU=1,
++# which lets the mission start with a dead IMU (bench use only).
++# The stamp file name carries the values, and the recipe deletes the other
++# stamps, so the files that read them are rebuilt whenever a value changes.
++BUDDY_TEST   ?= 0
++DEBUG_MON    ?= 0
++BENCH_NO_IMU ?= 0
++APP_TEST_STAMP := ./mtkernel_3/app_program/.buddy_test_$(BUDDY_TEST)_$(DEBUG_MON)_$(BENCH_NO_IMU)
++
++$(APP_TEST_STAMP):
++	@mkdir -p "$(@D)"
++	@rm -f ./mtkernel_3/app_program/.buddy_test_*
++	@touch "$@"
++
++./mtkernel_3/app_program/app_main.o: $(APP_TEST_STAMP)
++./mtkernel_3/app_program/integration/vehicle.o: $(APP_TEST_STAMP)
++
++################################################################################
++# Pico SDK subset used by the hardware modules
++################################################################################
++
++PICO_SDK_PATH ?= ../../sdk/pico-sdk
++
++ifneq ($(MAKECMDGOALS),clean)
++
++# GP0/GP1 carry the IMU's I2C bus on this robot, so the UART console pins
++# are not routed (BOARD_UART0_PINS = 0) and the console must be USB-CDC.
++ifneq ($(CONSOLE),usb_cdc)
++$(error The AAI03 robot uses GP0/GP1 for I2C: build with CONSOLE=usb_cdc)
++endif
++
++# The application's shared-data rules (single aligned stores, interrupt
++# masking with DI/EI) are proven for one core only.
++ifneq ($(SMP),0)
++$(error The AAI03 robot application is single-core: build with SMP=0)
++endif
++
++ifeq ($(wildcard $(PICO_SDK_PATH)/src/rp2_common/hardware_gpio/gpio.c),)
++$(error The robot application needs the Pico SDK.  Set PICO_SDK_PATH)
++endif
++
++endif
++
++APP_SDK_MODULES := common/pico_base_headers common/hardware_claim \
++                   common/pico_time common/pico_util common/pico_sync \
++                   rp2040/pico_platform rp2040/hardware_regs \
++                   rp2040/hardware_structs \
++                   rp2_common/pico_platform_common \
++                   rp2_common/pico_platform_compiler \
++                   rp2_common/pico_platform_sections \
++                   rp2_common/pico_platform_panic \
++                   rp2_common/hardware_base rp2_common/hardware_gpio \
++                   rp2_common/hardware_pwm rp2_common/hardware_adc \
++                   rp2_common/hardware_i2c rp2_common/hardware_timer \
++                   rp2_common/hardware_resets rp2_common/hardware_sync \
++                   rp2_common/hardware_sync_spin_lock \
++                   rp2_common/hardware_irq rp2_common/hardware_clocks
++
++# The SDK is included with -isystem so its own header warnings do not trip
++# -Werror; the generated pico/version.h stubs live in the USB console tree.
++APP_SDK_INCLUDES := -isystem "../lib/libtm/sysdepend/pico_rp2040/usb" \
++                    -isystem "$(PICO_SDK_PATH)/src/boards/include" \
++                    $(foreach mod,$(APP_SDK_MODULES), \
++                        -isystem "$(PICO_SDK_PATH)/src/$(mod)/include")
++
++APP_SDK_DEFINES := -DPICO_RP2040=1 -DPICO_32BIT=1 -DPICO_ON_DEVICE=1 \
++                   -DPICO_BUILD=1 -DPICO_NO_HARDWARE=0 \
++                   -DRASPBERRYPI_PICO_W=1 -DNDEBUG
++
++# SDK driver sources the robot links.  gpio.c is already part of the radio
++# profile, so it is added here only for the radio-less bench build.
++APP_SDK_SRCS := rp2_common/hardware_adc/adc.c rp2_common/hardware_i2c/i2c.c \
++                common/pico_time/timeout_helper.c
++ifneq ($(WIFI),cyw43)
++APP_SDK_SRCS += rp2_common/hardware_gpio/gpio.c
++endif
++APP_SDK_OBJS := $(addprefix ./mtkernel_3/app_sdk/,$(APP_SDK_SRCS:.c=.o))
++
++OBJS   += $(APP_SDK_OBJS)
++C_DEPS += $(APP_SDK_OBJS:.o=.d)
++
++################################################################################
++# Barr-C automated scan (rules 1.2, 1.3, 1.7, 3.5, 3.6, 5.2 and more).
++# Runs once per build before any application object is compiled.  Set
++# BARR_CHECK=0 to skip it on a machine without Python 3.
++################################################################################
++
++BARR_CHECK ?= 1
++APP_LINT_STAMP := ./mtkernel_3/app_program/.barr_check_ok
++APP_HEADERS := $(wildcard $(APP_ROOT)/*.h) \
++               $(foreach dir,$(APP_SUBDIRS),$(wildcard $(APP_ROOT)/$(dir)/*.h))
++
++ifeq ($(BARR_CHECK),1)
++$(APP_LINT_STAMP): $(APP_SRCS) $(APP_HEADERS) ../tools/barr_check.py
++	@echo 'Barr-C scan: $(APP_ROOT)'
++	@mkdir -p "$(@D)"
++	python3 ../tools/barr_check.py $(APP_ROOT)
++	@touch "$@"
++else
++$(APP_LINT_STAMP):
++	@mkdir -p "$(@D)"
++	@touch "$@"
++endif
++
++################################################################################
++# Rules
++################################################################################
++
++# The scan stamp is order-only: it must exist before any object is built,
++# but refreshing it (which any source edit does) must not rebuild them all.
++$(APP_KNL_OBJS): ./mtkernel_3/app_program/%.o: ../app_program/%.c | $(APP_LINT_STAMP)
++	@echo 'Building kernel-side module: $<'
++	@mkdir -p "$(@D)"
++	$(GCC) $(CFLAGS) -std=c99 -pedantic $(APP_WARNINGS) \
++	    -D$(TARGET) -DBUDDY_TEST=$(BUDDY_TEST) -DDEBUG_MON=$(DEBUG_MON) \
++	    -DBENCH_NO_IMU=$(BENCH_NO_IMU) \
++	    $(APP_KERNEL_INCLUDES) $(APP_INCLUDES) \
++	    -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
++
++$(APP_HW_OBJS): ./mtkernel_3/app_program/%.o: ../app_program/%.c | $(APP_LINT_STAMP)
++	@echo 'Building hardware module: $<'
++	@mkdir -p "$(@D)"
++	$(GCC) $(CFLAGS) -std=gnu11 $(APP_WARNINGS) $(APP_SDK_DEFINES) \
++	    $(APP_SDK_INCLUDES) $(APP_INCLUDES) -I"../config" \
++	    -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
++
++./mtkernel_3/app_sdk/%.o: $(PICO_SDK_PATH)/src/%.c
++	@echo 'Building Pico SDK file: $<'
++	@mkdir -p "$(@D)"
++	$(GCC) $(CFLAGS) -std=gnu11 $(APP_SDK_DEFINES) $(APP_SDK_INCLUDES) \
++	    -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
+diff --git a/config/wifi_credentials.example.h b/config/wifi_credentials.example.h
+index b0344a3..f6d9a98 100644
+--- a/config/wifi_credentials.example.h
++++ b/config/wifi_credentials.example.h
+@@ -42,4 +42,7 @@
+ #define UTK_WIFI_PASSWORD   "replace-with-password"
+ #define UTK_WIFI_AUTH       CYW43_AUTH_WPA2_AES_PSK
+ 
++/* IPv4 address of the PC running the MQTT broker on this network. */
++#define MQTT_BROKER_IP      "192.168.1.10"
++
+ #endif /* WIFI_CREDENTIALS_H */
+diff --git a/docs/GETTING_STARTED.md b/docs/GETTING_STARTED.md
+index 240ddba..4c2a5fa 100644
+--- a/docs/GETTING_STARTED.md
++++ b/docs/GETTING_STARTED.md
+@@ -70,7 +70,7 @@ export PICO_SDK_PATH=$HOME/pico/pico-sdk
+ Add that to your shell profile to make it permanent, or pass it per build:
+ 
+ ```sh
+-make SMP=1 CONSOLE=usb_cdc PICO_SDK_PATH=$HOME/pico/pico-sdk -j8
++make SMP=0 CONSOLE=usb_cdc PICO_SDK_PATH=$HOME/pico/pico-sdk -j8
+ ```
+ 
+ > [!WARNING]
+@@ -144,6 +144,15 @@ if your host compiler is not `g++`.
+ **The build is single core by default.** `SMP` is the only switch that decides
+ how many RP2040 cores the kernel uses.
+ 
++> [!IMPORTANT]
++> The robot application in `app_program/` builds **only** with
++> `SMP=0 CONSOLE=usb_cdc`; the makefile stops with an error for any other
++> combination (the application's shared-data rules are proven for one core,
++> and GP0/GP1 carry the IMU's I2C bus, so there is no UART console). The
++> other profiles in this section describe the bare kernel port and are kept
++> for reference. The robot's build commands are in the
++> [README](../README.md) and [MQTT_SETUP.md](MQTT_SETUP.md).
++
+ ### Single core (default)
+ 
+ ```sh
+@@ -170,10 +179,12 @@ affinity. Qualified at 58/58.
+ ### Console choice, independent of core count
+ 
+ ```sh
+-make SMP=1 -j8                  # UART0 console (default): GP0 TX, GP1 RX, 115200 8N1
+-make SMP=1 CONSOLE=usb_cdc -j8  # console over the Pico's own USB port
++make SMP=0 -j8                  # UART0 console (default): GP0 TX, GP1 RX, 115200 8N1
++make SMP=0 CONSOLE=usb_cdc -j8  # console over the Pico's own USB port
+ ```
+ 
++The robot application accepts only the second form: its IMU uses GP0/GP1.
++
+ The UART console has no external dependencies. **`CONSOLE=usb_cdc` links
+ TinyUSB from the Pico SDK** - see [step 1b](#1b-pico-sdk---only-if-you-want-usb-cdc-or-wi-fi)
+ for installing it and setting `PICO_SDK_PATH`.
+@@ -181,10 +192,10 @@ for installing it and setting `PICO_SDK_PATH`.
+ ### Radio (development profile, not in the qualified release)
+ 
+ Also needs the Pico SDK - see [step 1b](#1b-pico-sdk---only-if-you-want-usb-cdc-or-wi-fi).
+-`WIFI=cyw43` currently requires `SMP=1`.
++The robot builds its radio with `SMP=0`:
+ 
+ ```sh
+-make SMP=1 WIFI=cyw43 -j8
++make SMP=0 CONSOLE=usb_cdc WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 MQTT=1 -j8
+ ```
+ 
+ ### Artifact naming
+diff --git a/docs/MQTT_PROTOCOL.md b/docs/MQTT_PROTOCOL.md
+index 6f25317..839d6a6 100644
+--- a/docs/MQTT_PROTOCOL.md
++++ b/docs/MQTT_PROTOCOL.md
+@@ -6,8 +6,9 @@ header byte: bits 3..0 are the frame type and bits 7..4 the protocol version
+ (currently 1).  `tools/tlm_decode.py` decodes everything below and builds the
+ commands; `make -C tests` checks it against the firmware's own encoder.
+ 
+-Broker address, port and topic root are set in
+-`app_program/platform/robot_cfg.h` (`MQTT_BROKER_IP`, `MQTT_BROKER_PORT`,
++The broker address (`MQTT_BROKER_IP`) is set in the local file
++`config/wifi_credentials.h`; see [MQTT_SETUP.md](MQTT_SETUP.md).  Port and topic
++root are in `app_program/platform/robot_cfg.h` (`MQTT_BROKER_PORT`,
+ `MQTT_TOPIC_ROOT`, default `inf2004/aai03/`).  QoS 0, no retain, keep-alive
+ 10 s.
+ 
+diff --git a/tests/test_main.c b/tests/test_main.c
+index 1cd3e45..129b117 100644
+--- a/tests/test_main.c
++++ b/tests/test_main.c
+@@ -30,6 +30,7 @@
+ #define WIDE_TICKS              120u
+ #define FRAME_CHARS             3u
+ #define LETTERS                 26u
++#define STRAY_ELEMENTS          3u
+ 
+ static uint32_t g_checks   = 0u;
+ static uint32_t g_failures = 0u;
+@@ -268,6 +269,47 @@ test_code39 (void)
+     (void) build_frame('1', widths);
+     CHECK(CODE39_BAD_FRAME == code39_decode(widths, CODE39_FRAME_ELEMENTS,
+                                             &symbol, &b_reversed));
++
++    // Stray edges around the frame (paper edges): every letter, both ways.
++    passed = 0u;
++
++    for (uint32_t letter = 0u; letter < LETTERS; letter++)
++    {
++        uint32_t padded[CODE39_FRAME_ELEMENTS + STRAY_ELEMENTS];
++
++        (void) build_frame((uint8_t) ('A' + letter), widths);
++        padded[0] = WIDE_TICKS * 5u;
++        padded[CODE39_FRAME_ELEMENTS + 1u] = WIDE_TICKS * 4u;
++        padded[CODE39_FRAME_ELEMENTS + 2u] = NARROW_TICKS * 7u;
++
++        for (uint32_t idx = 0u; idx < CODE39_FRAME_ELEMENTS; idx++)
++        {
++            padded[idx + 1u] = widths[idx];
++        }
++
++        if ((CODE39_OK == code39_decode(padded,
++                                        CODE39_FRAME_ELEMENTS + STRAY_ELEMENTS,
++                                        &symbol, &b_reversed)) &&
++            (('A' + letter) == symbol) && (!b_reversed))
++        {
++            passed++;
++        }
++
++        for (uint32_t idx = 0u; idx < CODE39_FRAME_ELEMENTS; idx++)
++        {
++            padded[idx + 1u] = widths[(CODE39_FRAME_ELEMENTS - 1u) - idx];
++        }
++
++        if ((CODE39_OK == code39_decode(padded,
++                                        CODE39_FRAME_ELEMENTS + STRAY_ELEMENTS,
++                                        &symbol, &b_reversed)) &&
++            (('A' + letter) == symbol) && b_reversed)
++        {
++            passed++;
++        }
++    }
++
++    CHECK((2u * LETTERS) == passed);
+ }
+ 
+ 
+diff --git a/tools/barr_check.py b/tools/barr_check.py
+index 2d6da16..c862c33 100644
+--- a/tools/barr_check.py
++++ b/tools/barr_check.py
+@@ -19,6 +19,8 @@ import sys
+ MAX_LINE = 80
+ MAX_NAME = 31
+ EOF_MARKER = '/*** end of file ***/'
++# Left over from the kernel demo; not built into the robot.
++NOT_ROBOT_FILES = {'demo_tasks.c', 'demo_tasks.h', 'usb_console_compat.h'}
+ 
+ FORBIDDEN_KEYWORDS = {
+     'auto': '1.7.a', 'register': '1.7.b', 'goto': '1.7.c',
+@@ -601,7 +603,7 @@ def check_tree(roots):
+         for dirpath, _dirs, files in os.walk(root_dir):
+             for base in sorted(files):
+                 root, ext = os.path.splitext(base)
+-                if ext not in ('.c', '.h'):
++                if ext not in ('.c', '.h') or base in NOT_ROBOT_FILES:
+                     continue
+                 path = os.path.join(dirpath, base)
+ 
+diff --git a/tools/tlm_decode.py b/tools/tlm_decode.py
+index 7c60f9f..d1edd55 100644
+--- a/tools/tlm_decode.py
++++ b/tools/tlm_decode.py
+@@ -17,6 +17,7 @@ monitor and send need the paho-mqtt package (pip install paho-mqtt).
+ 
+ import argparse
+ import sys
++import threading
+ 
+ TOPIC_ROOT = 'inf2004/aai03/'
+ VERSION = 1
+@@ -210,29 +211,64 @@ def run_mqtt(args):
+         client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1)
+     else:
+         client = mqtt.Client()
+-    client.connect(args.broker, args.port, 10)
+     if args.mode in ('send', 'tune'):
++        connected = threading.Event()
++        connack = {}
++
++        def on_connect(_client, _userdata, _flags, rc):
++            connack['rc'] = rc
++            connected.set()
++
++        client.on_connect = on_connect
++        client.connect(args.broker, args.port, 10)
++        client.loop_start()
++        if not connected.wait(5.0):
++            client.loop_stop()
++            print('no reply from broker %s' % args.broker, file=sys.stderr)
++            return 1
++        if connack['rc'] != 0:
++            client.loop_stop()
++            print('broker %s refused the connection: %s'
++                  % (args.broker, mqtt.connack_string(connack['rc'])),
++                  file=sys.stderr)
++            return 1
+         if args.mode == 'tune':
+             payload = build_tune(args.setting, args.value)
+             args.command = '%s=%d' % (args.setting, args.value)
+         else:
+             payload = build_command(args.command, args.letter, args.action,
+                                     args.version)
+-        client.publish(TOPIC_ROOT + 'cmd', payload, qos=0)
+-        client.loop(1.0)
++        client.publish(TOPIC_ROOT + 'cmd', payload, qos=0).wait_for_publish(5.0)
++        client.disconnect()
++        client.loop_stop()
+         print('sent %s: %s' % (args.command, payload.hex(' ')))
+         return 0
+ 
+     def on_message(_client, _userdata, message):
+         try:
+-            print(message.topic, decode(message.payload))
++            print(message.topic, decode(message.payload), flush=True)
+         except ValueError as error:
+             print(message.topic, 'undecodable:', error,
+                   message.payload.hex(' '))
+ 
++    def on_connect(mqtt_client, _userdata, _flags, rc):
++        # Subscribe here, not after connect(): paho reconnects on its own
++        # after a dropped link but does not restore subscriptions made
++        # outside this callback, so the monitor would go silent for good.
++        print('connected to %s: %s' % (args.broker, mqtt.connack_string(rc)),
++              flush=True)
++        if rc == 0:
++            mqtt_client.subscribe(TOPIC_ROOT + '#')
++
++    def on_disconnect(_client, _userdata, rc):
++        print('disconnected from broker (rc=%s), reconnecting' % rc,
++              file=sys.stderr, flush=True)
++
++    client.on_connect = on_connect
++    client.on_disconnect = on_disconnect
+     client.on_message = on_message
+-    client.subscribe(TOPIC_ROOT + '#')
+-    client.loop_forever()
++    client.connect(args.broker, args.port, 10)
++    client.loop_forever(retry_first_connection=True)
+     return 0
+ 
+ 
+diff --git a/docs/MQTT_SETUP.md b/docs/MQTT_SETUP.md
+new file mode 100644
+index 0000000..58d759a
+--- /dev/null
++++ b/docs/MQTT_SETUP.md
+@@ -0,0 +1,98 @@
++# MQTT setup
++
++The robot joins Wi-Fi, connects to a Mosquitto broker on a PC, and publishes
++telemetry. The PC watches it and sends commands with `tools/tlm_decode.py`.
++The frames are described in [MQTT_PROTOCOL.md](MQTT_PROTOCOL.md).
++
++The robot and the PC must be on the same network. The Pico W only supports
++2.4 GHz Wi-Fi.
++
++## 1. Install on the PC
++
++macOS:
++
++```sh
++brew install mosquitto
++python3 -m pip install --user paho-mqtt
++```
++
++Ubuntu or WSL:
++
++```sh
++sudo apt install mosquitto mosquitto-clients
++python3 -m pip install --user paho-mqtt
++```
++
++Under WSL the robot cannot reach the broker by default. Run the broker on
++Windows, or forward port 1883 to WSL.
++
++## 2. Start the broker
++
++Find the PC's address first (macOS: `ipconfig getifaddr en0`; Windows:
++`ipconfig`; Linux: `hostname -I`). Then, from the repository root:
++
++```sh
++mosquitto -c tools/mosquitto_robot.conf -v
++```
++
++On macOS use `/opt/homebrew/opt/mosquitto/sbin/mosquitto` if `mosquitto` is not
++found. Allow incoming connections if the firewall asks.
++
++## 3. Set the network details
++
++```sh
++cp config/wifi_credentials.example.h config/wifi_credentials.h
++```
++
++In `config/wifi_credentials.h`, set `UTK_WIFI_CREDENTIALS_SET` to 1 and fill in
++`UTK_WIFI_SSID`, `UTK_WIFI_PASSWORD` and `MQTT_BROKER_IP` (the PC's address).
++Git ignores this file, so never commit a copy of it. The address can change when
++the PC rejoins a network: rebuild if it does.
++
++## 4. Build and flash
++
++From `build_make`:
++
++```sh
++make SMP=0 CONSOLE=usb_cdc WIFI=cyw43 WIFI_JOIN=1 WIFI_NETIF=1 WIFI_DHCP=1 MQTT=1 DEBUG_MON=1 PICO_SDK_PATH=~/pico/pico-sdk -j8
++```
++
++On macOS, run `brew install make` and use `gmake`: the built-in GNU Make 3.81 picks the wrong rule for the USB console files.
++
++Hold BOOTSEL, plug the Pico in, and copy
++`mtk3pico_smp0_usb_cdc_wifi_dhcp_mqtt.uf2` onto the drive.
++
++## 5. Check it works
++
++In a second terminal, replacing the address:
++
++```sh
++python3 tools/tlm_decode.py monitor --broker 192.168.1.10
++```
++
++Telemetry should appear within about 10 s of power-on. Mosquitto's log shows
++`aai03-robot` connecting. Send commands from a third terminal:
++
++```sh
++python3 tools/tlm_decode.py send start --broker 192.168.1.10
++python3 tools/tlm_decode.py send stop --broker 192.168.1.10
++python3 tools/tlm_decode.py send summary --broker 192.168.1.10
++python3 tools/tlm_decode.py send map A uturn --version 1 --broker 192.168.1.10
++python3 tools/tlm_decode.py tune track_mm 130 --broker 192.168.1.10
++```
++
++## Live calibration
++
++`tune` changes a setting without rebuilding, so the robot can be calibrated over
++MQTT. Changes are lost on reset, so copy good values into
++`app_program/platform/robot_cfg.h`. Useful settings are `enc_um_per_edge`,
++`track_mm` and `steer_dir`.
++
++## If it does not connect
++
++| Symptom | Check |
++|---|---|
++| Nothing in the Mosquitto log | Same network, 2.4 GHz, correct `MQTT_BROKER_IP`, PC firewall |
++| `monitor` cannot connect | Broker running, correct address after `--broker` |
++| Fault line `WiFi lost` on USB | SSID and password, signal, WPA2 network |
++| Fault line `MQTT lost` on USB | Broker stopped or address changed |
+diff --git a/tools/mosquitto_robot.conf b/tools/mosquitto_robot.conf
+new file mode 100644
+index 0000000..1954a31
+--- /dev/null
++++ b/tools/mosquitto_robot.conf
+@@ -0,0 +1,5 @@
++# Mosquitto broker for the AAI03 robot.  Run from the repository root:
++#   mosquitto -c tools/mosquitto_robot.conf -v
++# Anyone on the same network can connect, so use it on a private network only.
++listener 1883
++allow_anonymous true
