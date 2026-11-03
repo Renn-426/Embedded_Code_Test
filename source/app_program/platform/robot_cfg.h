@@ -259,7 +259,9 @@
 #define SERVO_MAX_US                2500u
 #define SERVO_LEFT_IS_HIGH          1u
 #define SCAN_FINE_STEP_DEG          5u
-#define SCAN_FINE_SETTLE_MS         60u
+// Settling time per fine-scan step.  Was 60 ms: too fast for the servo
+// plus the echo of the previous ping to die away, so readings were noisy.
+#define SCAN_FINE_SETTLE_MS         100u
 #define CLEARANCE_MAX_MM            1000u
 #define OBSTACLE_PROFILE_MM         600u
 #define SONAR_MAX_MM                2000u
@@ -267,6 +269,22 @@
 #define SERVO_CENTRE_DEG            90u
 #define VEHICLE_WIDTH_MM            150u
 #define CLEARANCE_MARGIN_MM         60u
+// Half-angle of the HC-SR04 beam that still returns an echo from a box.
+// The sensor reports the obstacle while any part of the beam touches it, so
+// a raw scan makes it look d * sin(this) wider on each side; the profile
+// takes that off.  TBC: scan a box of known width and adjust.
+#define SONAR_BEAM_HALF_DEG         10u
+#define OBSTACLE_MIN_WIDTH_MM       30u
+// Sideways clearance kept from the obstacle edge while passing it (the
+// side-choice check above still uses CLEARANCE_MARGIN_MM), and the limits on
+// the sideways move, so a bad scan cannot send the robot off the course.
+#define BYPASS_MARGIN_MM            40u
+#define BYPASS_LATERAL_MIN_MM       80u
+#define BYPASS_LATERAL_MAX_MM       250u
+// The detour turn is chosen from the sideways move and the distance to the
+// obstacle (atan(sideways / ahead)), within these limits.  Was a fixed 45.
+#define BYPASS_ANGLE_MIN_DEG        25
+#define BYPASS_ANGLE_MAX_DEG        60
 
 /* ------------------------------------------------------------------------ */
 /* Integration: Vehicle Control.                                           */

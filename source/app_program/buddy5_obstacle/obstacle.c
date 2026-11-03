@@ -299,10 +299,13 @@ run_scan (void)
                   (high_deg + FINE_MARGIN_DEG) : SCAN_MAX_DEG;
     g_ctx.state = OBSTACLE_STATE_FINE_SCAN;
 
+    // The servo jumps from the last coarse angle (150) to the start of the
+    // fine scan, so the first fine sample gets the full settling time.
     for (uint32_t angle = low_deg; angle <= high_deg;
          angle += SCAN_FINE_STEP_DEG)
     {
-        measure_at(angle, SCAN_FINE_SETTLE_MS);
+        measure_at(angle, (low_deg == angle) ? SERVO_SETTLE_MS :
+                                               SCAN_FINE_SETTLE_MS);
     }
 
     servo_hw_set_angle(SERVO_CENTRE_DEG);

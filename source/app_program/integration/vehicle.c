@@ -35,18 +35,24 @@
 #include "tune.h"
 
 #define WAIT_MS                 50
+#define SEEK_WAIT_MS            10      // Line task period: edge seen in time.
 #define US_PER_MS               1000u
 #define FOLLOW_SLOW_MS          600u    // Slow start after every turn.
 #define MAX_STEPS               8u
-#define CALIB_SWEEP_DEG         25
+// Calibration sweep: out CALIB_SWEEP_DEG to one side, 2 x that to the
+// other, then back towards the line until the centre sensor reaches the
+// edge it follows (at most CALIB_RETURN_MAX_DEG).  Was +25/-50/+25 by
+// encoder angle alone: each turn coasts past its goal, so the robot ended
+// a few degrees left, and from a dead-centre start the sensor was then on
+// the wrong edge of the line and the robot steered away from it.
+#define CALIB_SWEEP_DEG         20
+#define CALIB_RETURN_MAX_DEG    45
 #define SWEEP_UNIT_DEG          30
 #define BITS_PER_BYTE           8u
 #define TURN_90_DEG             90
 #define TURN_180_DEG            180
 #define CROSS_JUNCTION_MM       100
-#define BYPASS_ANGLE_DEG        45
 #define APPROACH_STEP           4u
-#define SQRT2_MILLI             1414
 #define MILLI                   1000
 #define APPROACH_FACTOR_MILLI   1500
 #define MIN_PASS_MM             100
@@ -58,7 +64,10 @@
 // Signed copies of the unsigned geometry constants.  Each is below 2^16,
 // so the casts are exact.
 #define HALF_VEHICLE_MM         ((int32_t) (VEHICLE_WIDTH_MM / 2u))
-#define MARGIN_MM               ((int32_t) CLEARANCE_MARGIN_MM)
+#define LATERAL_MIN_MM          ((int32_t) BYPASS_LATERAL_MIN_MM)
+#define LATERAL_MAX_MM          ((int32_t) BYPASS_LATERAL_MAX_MM)
+#define PASS_MARGIN_MM          ((int32_t) BYPASS_MARGIN_MM)
+#define MDEG_PER_DEG            1000
 #define DEPTH_EST_MM            ((int32_t) OBSTACLE_DEPTH_EST_MM)
 #define LENGTH_MM               ((int32_t) VEHICLE_LENGTH_MM)
 #define JUNCTION_ADVANCE        ((int32_t) JUNCTION_ADVANCE_MM)
@@ -117,7 +126,11 @@ typedef struct
     bool             b_steps_running;
     bool             b_scan_requested;
     bool             b_follow_slow;     // Still in the slow start of following.
+    bool             b_seeking_edge;    // Calibration: last swing to the edge.
+    bool             b_edge_stopped;    // The edge was found; STOP issued.
+    int32_t          calib_side;        // +1: sweep left first; -1: right.
     bool             b_realigning;
+    int32_t          bypass_deg;        // Detour angle of the current bypass.
     bool             b_button_down;
     bool             b_latched;
     nav_map_action_t latched;
@@ -139,6 +152,8 @@ static void take_commands(void);
 static void apply_command(uint32_t word);
 static void take_barcodes(void);
 static void dispatch(uint32_t events);
+static void on_calibrating(bool b_finished);
+static bool is_on_edge(void);
 static void on_line_following(uint32_t events);
 static void on_obstacle_scan(uint32_t events);
 static void on_bypass(uint32_t events, bool b_finished);
@@ -197,8 +212,12 @@ vehicle_task (INT start_code, void * p_ext_info)
 
     for (;;)
     {
-        uint32_t const events = robot_ipc_flag_wait(ROBOT_IPC_FLAG_VEHICLE,
-                                                    ROBOT_EVT_ALL, WAIT_MS);
+        // While the calibration swing looks for the line edge, poll at the
+        // line task's rate, so the robot stops within a degree of the edge.
+        uint32_t const wait_ms = g_ctx.b_seeking_edge ? SEEK_WAIT_MS :
+                                                        WAIT_MS;
+        uint32_t const events  = robot_ipc_flag_wait(ROBOT_IPC_FLAG_VEHICLE,
+                                                     ROBOT_EVT_ALL, wait_ms);
 
         check_safety(events);
 
@@ -426,17 +445,7 @@ dispatch (uint32_t events)
         break;
 
         case VEHICLE_CALIBRATING:
-            if (b_finished)
-            {
-                if (line_follow_end_calibration())
-                {
-                    follow();
-                }
-                else
-                {
-                    enter(VEHICLE_SAFE_STOP);
-                }
-            }
+            on_calibrating(b_finished);
         break;
 
         case VEHICLE_LINE_FOLLOWING:
@@ -488,6 +497,81 @@ dispatch (uint32_t events)
             // READY, SAFE STOP and MISSION COMPLETE wait for a command.
         break;
     }
+}
+
+
+/*!
+ * @brief CALIBRATING: finish the sweep, then swing back onto the line edge.
+ *
+ * @param[in] b_finished  true if the step list has just finished.
+ *
+ * @par
+ * After the two sweep turns the range is known, so the line task can tell
+ * where the edge is.  The return swing is then stopped as soon as the
+ * centre sensor reads half black (offset 0 or more), which leaves it on
+ * the edge it follows whatever the turns overshot.  If the edge is not
+ * seen within CALIB_RETURN_MAX_DEG, following starts anyway and the
+ * normal line-loss search takes over.
+ */
+static void
+on_calibrating (bool b_finished)
+{
+    step_t const back[] =
+    {
+        { STEP_TURN, g_ctx.calib_side * CALIB_RETURN_MAX_DEG }
+    };
+
+    if ((!g_ctx.b_seeking_edge) && b_finished)
+    {
+        // The two sweep turns are done: the range is known.
+        if (line_follow_end_calibration())
+        {
+            g_ctx.b_seeking_edge = true;
+            g_ctx.b_edge_stopped = false;
+            run_steps(back, 1u);
+        }
+        else
+        {
+            enter(VEHICLE_SAFE_STOP);
+        }
+    }
+    else if (!g_ctx.b_seeking_edge)
+    {
+        // Still sweeping.
+    }
+    else if (b_finished)
+    {
+        // Stopped on the edge (or the swing ran out): start following.
+        g_ctx.b_seeking_edge = false;
+        follow();
+    }
+    else if ((!g_ctx.b_edge_stopped) && (is_on_edge()))
+    {
+        // Its MOVE_DONE ends the swing (b_finished above).
+        g_ctx.b_edge_stopped = true;
+        (void) motion_stop();  // A full queue still holds an earlier STOP.
+    }
+    else
+    {
+        // Still swinging towards the edge.
+    }
+}
+
+
+/*!
+ * @brief Report whether the centre sensor is on the line edge.
+ *
+ * @return true once the new calibration is in use and the reading is
+ *         fresh and at least half black.
+ */
+static bool
+is_on_edge (void)
+{
+    uint32_t const word = line_follow_read();
+
+    return ((LINE_STATE_CALIBRATING != line_follow_state(word)) &&
+            (line_follow_age_ms(word) <= LINE_STALE_MS) &&
+            (line_follow_offset(word) >= 0));
 }
 
 
@@ -579,9 +663,9 @@ on_bypass (uint32_t events, bool b_finished)
     else if ((!g_ctx.b_realigning) && b_found &&
              (g_ctx.step_index >= APPROACH_STEP))
     {
-        // Back on the line at 45 degrees: turn to the original heading.
+        // Back on the line at the detour angle: turn to the original heading.
         int32_t const angle     = (OBS_PLAN_PASS_LEFT == g_ctx.profile.plan) ?
-                                  BYPASS_ANGLE_DEG : -BYPASS_ANGLE_DEG;
+                                  g_ctx.bypass_deg : -g_ctx.bypass_deg;
         step_t const  realign[] = { { STEP_TURN, angle } };
 
         g_ctx.b_realigning = true;
@@ -704,14 +788,21 @@ check_timeouts (void)
 static void
 start_run (void)
 {
-    step_t const sweep[] =
+    // The centre sensor follows the right-hand edge of the line when
+    // steer_dir is +1 (line_follow.h), so the sweep goes left, then right
+    // past the line onto white, and on_calibrating() swings back left onto
+    // that edge.  With steer_dir -1 (left-hand edge) it is mirrored.
+    int32_t const side    = (tune_get(TUNE_STEER_DIR) >= 0) ? 1 : -1;
+    step_t const  sweep[] =
     {
-        { STEP_TURN, CALIB_SWEEP_DEG },
-        { STEP_TURN, -2 * CALIB_SWEEP_DEG },
-        { STEP_TURN, CALIB_SWEEP_DEG }
+        { STEP_TURN, side * CALIB_SWEEP_DEG },
+        { STEP_TURN, -side * 2 * CALIB_SWEEP_DEG }
     };
 
-    g_ctx.b_latched = false;
+    g_ctx.calib_side     = side;
+    g_ctx.b_seeking_edge = false;
+    g_ctx.b_edge_stopped = false;
+    g_ctx.b_latched      = false;
     enter(VEHICLE_CALIBRATING);
     line_follow_begin_calibration();
     run_steps(sweep, sizeof(sweep) / sizeof(sweep[0]));
@@ -851,34 +942,62 @@ begin_plan (void)
 
 
 /*!
- * @brief BYPASS: leave the line at 45 degrees, pass the obstacle, and
- *        come back at 45 degrees until LINE_FOUND.
+ * @brief BYPASS: leave the line, pass the obstacle, and come back at the
+ *        same angle until LINE_FOUND.
+ *
+ * @par
+ * The sideways move comes from the profile: the obstacle edge on the
+ * passing side plus half the vehicle plus BYPASS_MARGIN_MM, with the sonar
+ * beam spread already taken off (obs_profile.c).  It used to be half the
+ * raw width plus half the vehicle plus 60 mm at a fixed 45 degrees, and the
+ * raw width of a small box is inflated by the beam, so the robot swung much
+ * further out than needed.  The turn angle is then atan(sideways / ahead):
+ * a small obstacle far ahead gets a shallow turn, a big one close by a
+ * steep one, within BYPASS_ANGLE_MIN_DEG..BYPASS_ANGLE_MAX_DEG.
  */
 static void
 begin_bypass (void)
 {
-    int32_t const side    = (OBS_PLAN_PASS_LEFT == g_ctx.profile.plan) ?
-                            1 : -1;
+    int32_t const side     = (OBS_PLAN_PASS_LEFT == g_ctx.profile.plan) ?
+                             1 : -1;
 
-    // Profile distances are at most 2550 mm (8-bit cm fields), so both
-    // conversions to int32_t are exact.
-    int32_t const width   = (int32_t) g_ctx.profile.width_mm;
-    int32_t const ahead   = (int32_t) g_ctx.profile.distance_mm;
-    int32_t const lateral = (width / 2) + HALF_VEHICLE_MM + MARGIN_MM;
-    int32_t const leg     = (lateral * SQRT2_MILLI) / MILLI;
-    int32_t const pass    = fix_math_clamp(ahead + DEPTH_EST_MM +
-                                           LENGTH_MM - lateral,
-                                           MIN_PASS_MM, INT32_MAX);
+    // Profile distances are at most 2550 mm (8-bit cm fields) and the
+    // sideways move at most 630 mm, so the conversions are exact.
+    int32_t const width    = (int32_t) g_ctx.profile.width_mm;
+    int32_t const ahead    = (int32_t) g_ctx.profile.distance_mm;
+    int32_t const measured = (0u != g_ctx.profile.lateral_mm) ?
+                             (int32_t) g_ctx.profile.lateral_mm :
+                             ((width / 2) + HALF_VEHICLE_MM + PASS_MARGIN_MM);
+    int32_t const lateral  = fix_math_clamp(measured, LATERAL_MIN_MM,
+                                            LATERAL_MAX_MM);
+
+    // Keep the margin between the robot's nose and the obstacle face.
+    int32_t const room     = fix_math_clamp(ahead - PASS_MARGIN_MM, 1,
+                                            INT32_MAX);
+    int32_t const angle    = fix_math_clamp(
+                                 fix_math_atan2_mdeg(lateral, room) /
+                                 MDEG_PER_DEG,
+                                 BYPASS_ANGLE_MIN_DEG, BYPASS_ANGLE_MAX_DEG);
+    int32_t const sin_q15  = fix_math_sin_q15(angle * MDEG_PER_DEG);
+    int32_t const cos_q15  = fix_math_cos_q15(angle * MDEG_PER_DEG);
+
+    // sin is at least sin(25 deg) > 0.4, so neither division can fail.
+    int32_t const leg      = (lateral * FIX_MATH_Q15_ONE) / sin_q15;
+    int32_t const forward  = (lateral * cos_q15) / sin_q15;
+    int32_t const pass     = fix_math_clamp(ahead + DEPTH_EST_MM +
+                                            LENGTH_MM - forward,
+                                            MIN_PASS_MM, INT32_MAX);
     step_t const  detour[] =
     {
-        { STEP_TURN, side * BYPASS_ANGLE_DEG },
+        { STEP_TURN, side * angle },
         { STEP_FORWARD, leg },
-        { STEP_TURN, -side * BYPASS_ANGLE_DEG },
+        { STEP_TURN, -side * angle },
         { STEP_FORWARD, pass },
-        { STEP_TURN, -side * BYPASS_ANGLE_DEG },
+        { STEP_TURN, -side * angle },
         { STEP_FORWARD, (leg * APPROACH_FACTOR_MILLI) / MILLI }
     };
 
+    g_ctx.bypass_deg   = angle;
     g_ctx.b_realigning = false;
     enter(VEHICLE_BYPASS);
     run_steps(detour, sizeof(detour) / sizeof(detour[0]));
