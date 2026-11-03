@@ -214,7 +214,7 @@ vehicle_task (INT start_code, void * p_ext_info)
     {
         // While the calibration swing looks for the line edge, poll at the
         // line task's rate, so the robot stops within a degree of the edge.
-        uint32_t const wait_ms = g_ctx.b_seeking_edge ? SEEK_WAIT_MS :
+        int32_t const  wait_ms = g_ctx.b_seeking_edge ? SEEK_WAIT_MS :
                                                         WAIT_MS;
         uint32_t const events  = robot_ipc_flag_wait(ROBOT_IPC_FLAG_VEHICLE,
                                                      ROBOT_EVT_ALL, wait_ms);
