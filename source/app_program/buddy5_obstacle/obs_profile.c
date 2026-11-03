@@ -22,12 +22,16 @@
 #define FIELD_CM_WIDTH          8u
 #define FIELD_ANGLE_WIDTH       6u
 #define FIELD_PLAN_WIDTH        3u
+#define FIELD_LATERAL_WIDTH     6u
 
 // Signed copies of the tuning constants; each is below 2^16, so the casts
 // are exact.
 #define CLEAR_MAX_MM            ((int32_t) CLEARANCE_MAX_MM)
 #define HALF_WIDTH_MM           ((int32_t) (VEHICLE_WIDTH_MM / 2u))
 #define MARGIN_MM               ((int32_t) CLEARANCE_MARGIN_MM)
+#define PASS_MARGIN_MM          ((int32_t) BYPASS_MARGIN_MM)
+#define MIN_WIDTH_MM            ((int32_t) OBSTACLE_MIN_WIDTH_MM)
+#define BEAM_HALF_MDEG          ((int32_t) SONAR_BEAM_HALF_DEG * MDEG_PER_DEG)
 
 /*!
  * @brief A scan point in robot coordinates.
@@ -64,8 +68,12 @@ static int32_t            side_clearance(obs_profile_point_t const * p_points,
                                          uint32_t count,
                                          extent_t const * p_extent,
                                          bool b_left);
+static void               narrow_for_beam(extent_t * p_extent,
+                                          uint32_t closest_mm);
 static obs_profile_plan_t plan_route(extent_t const * p_extent,
                                      int32_t left_clear, int32_t right_clear);
+static uint32_t           pass_lateral(extent_t const * p_extent,
+                                       obs_profile_plan_t plan);
 static uint32_t           to_cm_field(uint32_t value_mm);
 
 
@@ -89,6 +97,7 @@ obs_profile_compute (obs_profile_point_t const * p_points, uint32_t count,
     p_profile->width_mm       = 0u;
     p_profile->left_clear_mm  = CLEARANCE_MAX_MM;
     p_profile->right_clear_mm = CLEARANCE_MAX_MM;
+    p_profile->lateral_mm     = 0u;
     p_profile->plan           = OBS_PLAN_STOP;
     p_profile->b_valid        = (used > 0u);
 
@@ -99,8 +108,12 @@ obs_profile_compute (obs_profile_point_t const * p_points, uint32_t count,
     }
     else if (p_profile->b_valid)
     {
-        int32_t const left  = side_clearance(sorted, used, &extent, true);
-        int32_t const right = side_clearance(sorted, used, &extent, false);
+        int32_t left  = 0;
+        int32_t right = 0;
+
+        narrow_for_beam(&extent, sorted[extent.closest].distance_mm);
+        left  = side_clearance(sorted, used, &extent, true);
+        right = side_clearance(sorted, used, &extent, false);
 
         // Every value below is non-negative and below 2^16, so each
         // conversion to unsigned is exact.
@@ -111,6 +124,7 @@ obs_profile_compute (obs_profile_point_t const * p_points, uint32_t count,
         p_profile->left_clear_mm  = (uint32_t) left;    // 0..1000.
         p_profile->right_clear_mm = (uint32_t) right;   // 0..1000.
         p_profile->plan           = plan_route(&extent, left, right);
+        p_profile->lateral_mm     = pass_lateral(&extent, p_profile->plan);
     }
     else
     {
@@ -143,6 +157,9 @@ obs_profile_pack (obs_profile_t const * p_profile, uint8_t * p_msg)
     // The plan enumeration is below 8, so the cast is exact.
     bitpack_put(&pack, (uint32_t) p_profile->plan, FIELD_PLAN_WIDTH);
     bitpack_put(&pack, p_profile->b_valid ? 1u : 0u, 1u);
+    bitpack_put(&pack, bitpack_saturate(p_profile->lateral_mm / MM_PER_CM,
+                                        FIELD_LATERAL_WIDTH),
+                FIELD_LATERAL_WIDTH);
 }
 
 
@@ -180,6 +197,8 @@ obs_profile_unpack (uint8_t const * p_msg, obs_profile_t * p_profile)
                                 MM_PER_CM;
     plan                      = bitpack_get(&pack, FIELD_PLAN_WIDTH);
     p_profile->b_valid        = (1u == bitpack_get(&pack, 1u));
+    p_profile->lateral_mm     = bitpack_get(&pack, FIELD_LATERAL_WIDTH) *
+                                MM_PER_CM;
 
     switch (plan)
     {
@@ -397,6 +416,79 @@ side_clearance (obs_profile_point_t const * p_points, uint32_t count,
     }
 
     return (clearance);
+}
+
+
+/*!
+ * @brief Take the sonar beam spread off both edges of the obstacle.
+ *
+ * @param[in,out] p_extent    Obstacle extent; edges moved inwards.
+ * @param[in]     closest_mm  Range of the obstacle's closest point.
+ *
+ * @par
+ * The width never drops below OBSTACLE_MIN_WIDTH_MM; if it would, both
+ * edges are placed that far apart around the middle of the raw extent.
+ */
+static void
+narrow_for_beam (extent_t * p_extent, uint32_t closest_mm)
+{
+    // closest_mm is below OBSTACLE_PROFILE_MM, so the cast is exact.
+    int32_t const shrink = ((int32_t) closest_mm *
+                            fix_math_sin_q15(BEAM_HALF_MDEG)) /
+                           FIX_MATH_Q15_ONE;
+    int32_t const left   = p_extent->left_x_mm - shrink;
+    int32_t const right  = p_extent->right_x_mm + shrink;
+
+    if ((left - right) >= MIN_WIDTH_MM)
+    {
+        p_extent->left_x_mm  = left;
+        p_extent->right_x_mm = right;
+    }
+    else
+    {
+        int32_t const middle = (p_extent->left_x_mm + p_extent->right_x_mm) /
+                               2;
+
+        p_extent->left_x_mm  = middle + (MIN_WIDTH_MM / 2);
+        p_extent->right_x_mm = middle - (MIN_WIDTH_MM / 2);
+    }
+}
+
+
+/*!
+ * @brief Sideways move that takes the vehicle past the obstacle edge.
+ *
+ * @param[in] p_extent  Obstacle extent (beam spread already removed).
+ * @param[in] plan      Chosen plan.
+ *
+ * @return Distance in mm from the line to the vehicle's centre while
+ *         passing, or 0 if the plan does not pass the obstacle.
+ *
+ * @par
+ * Measured from the obstacle edge on the passing side, so an obstacle
+ * that sits off the line needs a smaller move than its width suggests.
+ */
+static uint32_t
+pass_lateral (extent_t const * p_extent, obs_profile_plan_t plan)
+{
+    int32_t const corridor = HALF_WIDTH_MM + PASS_MARGIN_MM;
+    int32_t       move     = 0;
+
+    if (OBS_PLAN_PASS_LEFT == plan)
+    {
+        move = p_extent->left_x_mm + corridor;
+    }
+    else if (OBS_PLAN_PASS_RIGHT == plan)
+    {
+        move = corridor - p_extent->right_x_mm;
+    }
+    else
+    {
+        move = 0;
+    }
+
+    // Non-negative after the clamp, so the conversion is exact.
+    return ((uint32_t) fix_math_clamp(move, 0, INT32_MAX));
 }
 
 

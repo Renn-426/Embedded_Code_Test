@@ -31,6 +31,8 @@
 #define FRAME_CHARS             3u
 #define LETTERS                 26u
 #define STRAY_ELEMENTS          3u
+#define BLUR_WIDE_TICKS         90u     // Printed wide, blur test.
+#define BLUR_TICKS              28u     // Bars gain, spaces lose this.
 
 static uint32_t g_checks   = 0u;
 static uint32_t g_failures = 0u;
@@ -310,6 +312,43 @@ test_code39 (void)
     }
 
     CHECK((2u * LETTERS) == passed);
+
+    // IR blur: every bar reads wider and every space narrower than printed,
+    // so a narrow bar can end up wider than a wide space.  Printed 40/90,
+    // blurred by 28: narrow bar 68 > wide space 62.  Bars and spaces are
+    // classed separately, so every letter still reads, both ways.
+    passed = 0u;
+
+    for (uint32_t letter = 0u; letter < LETTERS; letter++)
+    {
+        uint32_t const count = build_frame((uint8_t) ('A' + letter), widths);
+
+        for (uint32_t idx = 0u; idx < count; idx++)
+        {
+            bool const     b_wide = (widths[idx] >= WIDE_TICKS);
+            bool const     b_bar  = (0u == (idx % 2u));  // Bar first.
+            uint32_t const print  = b_wide ? BLUR_WIDE_TICKS : NARROW_TICKS;
+
+            widths[idx] = b_bar ? (print + BLUR_TICKS) : (print - BLUR_TICKS);
+        }
+
+        for (uint32_t idx = 0u; idx < count; idx++)
+        {
+            reversed[idx] = widths[(count - 1u) - idx];
+        }
+
+        if ((CODE39_OK == code39_decode(widths, count, &symbol,
+                                        &b_reversed)) &&
+            (('A' + letter) == symbol) && (!b_reversed) &&
+            (CODE39_OK == code39_decode(reversed, count, &symbol,
+                                        &b_reversed)) &&
+            (('A' + letter) == symbol) && b_reversed)
+        {
+            passed++;
+        }
+    }
+
+    CHECK(LETTERS == passed);
 }
 
 
@@ -403,15 +442,17 @@ test_obs_profile (void)
     obs_profile_compute(points, count, &profile);
     CHECK(OBS_PLAN_CONTINUE == profile.plan);
 
-    // Scene 2: a 100 mm box 250 mm ahead, open on both sides.
+    // Scene 2: a 100 mm box 250 mm ahead, open on both sides.  The box
+    // spans 80..100 degrees; the 10-degree beam half-angle makes it echo
+    // from 70 to 110, and the profile must take that spread off again.
     count = 0u;
 
     for (uint32_t angle = 30u; angle <= 150u; angle += 5u)
     {
         points[count].angle_deg   = angle;
-        points[count].distance_mm = ((angle >= 80u) && (angle <= 100u)) ?
+        points[count].distance_mm = ((angle >= 70u) && (angle <= 110u)) ?
                                     250u : 1500u;
-        points[count].b_echo      = ((angle >= 80u) && (angle <= 100u));
+        points[count].b_echo      = ((angle >= 70u) && (angle <= 110u));
         count++;
     }
 
@@ -420,15 +461,44 @@ test_obs_profile (void)
           (OBS_PLAN_PASS_RIGHT == profile.plan));
     CHECK(near((int32_t) profile.width_mm, 87, 30));
 
+    // Sideways move: half the box (about 44) + half the vehicle (75) +
+    // BYPASS_MARGIN_MM (40), not the raw-width figure of about 250.
+    CHECK(near((int32_t) profile.lateral_mm, 159, 30));
+
     obs_profile_pack(&profile, msg);
     obs_profile_unpack(msg, &decoded);
     CHECK(decoded.plan == profile.plan);
     CHECK((profile.distance_mm / 10u) == (decoded.distance_mm / 10u));
+    CHECK((profile.lateral_mm / 10u) == (decoded.lateral_mm / 10u));
+
+    // A box well to the right of the line needs a smaller move to pass it
+    // on the left than its width suggests.
+    for (uint32_t idx = 0u; idx < count; idx++)
+    {
+        uint32_t const angle = points[idx].angle_deg;
+
+        points[idx].distance_mm = ((angle >= 55u) && (angle <= 95u)) ?
+                                  250u : 1500u;
+        points[idx].b_echo      = ((angle >= 55u) && (angle <= 95u));
+    }
+
+    obs_profile_compute(points, count, &profile);
+    CHECK(OBS_PLAN_PASS_LEFT == profile.plan);
+    CHECK(profile.lateral_mm < 140u);
+
+    for (uint32_t idx = 0u; idx < count; idx++)
+    {
+        uint32_t const angle = points[idx].angle_deg;
+
+        points[idx].distance_mm = ((angle >= 70u) && (angle <= 110u)) ?
+                                  250u : 1500u;
+        points[idx].b_echo      = ((angle >= 70u) && (angle <= 110u));
+    }
 
     // Scene 3: the same box with a wall close on the left: pass right.
     for (uint32_t idx = 0u; idx < count; idx++)
     {
-        if (points[idx].angle_deg >= 110u)
+        if (points[idx].angle_deg >= 120u)
         {
             points[idx].distance_mm = 260u;
             points[idx].b_echo      = true;
@@ -441,7 +511,7 @@ test_obs_profile (void)
     // Scene 4: walls on both sides: reverse and retry.
     for (uint32_t idx = 0u; idx < count; idx++)
     {
-        if (points[idx].angle_deg <= 70u)
+        if (points[idx].angle_deg <= 60u)
         {
             points[idx].distance_mm = 260u;
             points[idx].b_echo      = true;

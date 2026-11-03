@@ -19,7 +19,13 @@
  * Profile message on mbf_obs_profile, 6 bytes, LSB first:
  *   [7:0] closest distance cm, [15:8] width cm, [21:16] closest angle / 5,
  *   [29:22] left clearance cm, [37:30] right clearance cm, [40:38] plan,
- *   [41] valid.
+ *   [41] valid, [47:42] sideways move for the planned pass, cm.
+ *
+ * @par
+ * The raw scan makes an obstacle look wider than it is, because the sensor
+ * echoes while any part of its beam touches it.  Each edge is moved in by
+ * d * sin(SONAR_BEAM_HALF_DEG), d being the obstacle range, before the
+ * width, clearances and plan are worked out.
  *
  * @par
  * COPYRIGHT NOTICE: (c) 2026 AAI03 team, INF2004.  All rights reserved.
@@ -66,6 +72,7 @@ typedef struct
     uint32_t           width_mm;
     uint32_t           left_clear_mm;
     uint32_t           right_clear_mm;
+    uint32_t           lateral_mm;      // Sideways move to pass (0: none).
     obs_profile_plan_t plan;
     bool               b_valid;
 } obs_profile_t;

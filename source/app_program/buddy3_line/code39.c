@@ -16,7 +16,8 @@
 
 #include "code39.h"
 
-#define WIDE_PER_CHAR           3u
+#define WIDE_BARS               2u      // Wide bars in a letter or '*'.
+#define WIDE_SPACES             1u      // Wide spaces in a letter or '*'.
 #define CHAR_STRIDE             (CODE39_ELEMENTS_PER_CHAR + 1u)
 #define TABLE_SIZE              44u
 #define RATIO_NUMERATOR         13u     // Wide must be >= 1.3 x narrow.
@@ -188,7 +189,8 @@ decode_frame (uint32_t const * p_widths, uint8_t * p_symbol)
                               &min_wide);
         }
 
-        // The inter-character gap after this character must be narrow.
+        // The inter-character gap after this character is a narrow space,
+        // so it must be narrower than this character's wide space.
         if ((CODE39_OK == result) &&
             ((chr + 1u) < CODE39_CHARS_PER_FRAME) &&
             (p_widths[(chr * CHAR_STRIDE) + CODE39_ELEMENTS_PER_CHAR] >=
@@ -248,61 +250,82 @@ decode_reversed (uint32_t const * p_widths, uint8_t * p_symbol)
 /*!
  * @brief Class one character's elements as wide or narrow.
  *
- * @param[in]  p_elements  9 element widths.
+ * @param[in]  p_elements  9 element widths: bar, space, bar ... bar.
  * @param[out] p_pattern   9-bit pattern, first element in bit 8.
- * @param[out] p_min_wide  Width of the narrowest wide element.
+ * @param[out] p_min_wide  Width of the narrowest wide space.
  *
- * @return CODE39_OK, or CODE39_BAD_RATIO if the three widest elements are
- *         not clearly (1.5 times) wider than the rest.
+ * @return CODE39_OK, or CODE39_BAD_RATIO if the wide elements are not
+ *         clearly (RATIO_NUMERATOR / RATIO_DENOMINATOR) wider than the
+ *         narrow ones of the same colour.
+ *
+ * @par
+ * Bars and spaces are classed separately: the 2 widest of the 5 bars and
+ * the widest of the 4 spaces are wide.  Every letter and the '*' frame
+ * character has exactly that mix (only '$', '/', '+' and '%' differ, and
+ * they never appear in a "*X*" frame).  On the robot the IR spot blurs the
+ * print, which makes every bar read wider and every space narrower than
+ * printed; picking the 3 widest of all 9 then takes a narrow bar for a wide
+ * space and the read fails.  Comparing each colour only with itself
+ * cancels that bias, whichever direction the label is crossed in.
  */
 static code39_result_t
 classify (uint32_t const * p_elements, uint32_t * p_pattern,
           uint32_t * p_min_wide)
 {
-    uint32_t        pattern    = 0u;
-    uint32_t        min_wide   = UINT32_MAX;
-    uint32_t        max_narrow = 0u;
-    code39_result_t result     = CODE39_OK;
+    uint32_t        pattern       = 0u;
+    uint32_t        min_wide[2]   = { UINT32_MAX, UINT32_MAX };
+    uint32_t        max_narrow[2] = { 0u, 0u };
+    code39_result_t result        = CODE39_OK;
 
-    // Pick the three widest elements, one at a time.
-    for (uint32_t pick = 0u; pick < WIDE_PER_CHAR; pick++)
+    // Colour 0 = bars (even positions), 1 = spaces (odd positions).
+    for (uint32_t colour = 0u; colour < 2u; colour++)
     {
-        uint32_t best_idx = 0u;
-        uint32_t best     = 0u;
+        uint32_t const wide_count = (0u == colour) ? WIDE_BARS : WIDE_SPACES;
 
-        for (uint32_t idx = 0u; idx < CODE39_ELEMENTS_PER_CHAR; idx++)
+        // Pick the widest elements of this colour, one at a time.
+        for (uint32_t pick = 0u; pick < wide_count; pick++)
         {
-            uint32_t const bit = 1u << ((CODE39_ELEMENTS_PER_CHAR - 1u) -
-                                        idx);
+            uint32_t best_idx = colour;
+            uint32_t best     = 0u;
 
-            if ((0u == (pattern & bit)) && (p_elements[idx] >= best))
+            for (uint32_t idx = colour; idx < CODE39_ELEMENTS_PER_CHAR;
+                 idx += 2u)
             {
-                best     = p_elements[idx];
-                best_idx = idx;
+                uint32_t const bit = 1u << ((CODE39_ELEMENTS_PER_CHAR - 1u) -
+                                            idx);
+
+                if ((0u == (pattern & bit)) && (p_elements[idx] >= best))
+                {
+                    best     = p_elements[idx];
+                    best_idx = idx;
+                }
+            }
+
+            pattern |= 1u << ((CODE39_ELEMENTS_PER_CHAR - 1u) - best_idx);
+            min_wide[colour] = (best < min_wide[colour]) ? best :
+                                                           min_wide[colour];
+        }
+
+        for (uint32_t idx = colour; idx < CODE39_ELEMENTS_PER_CHAR; idx += 2u)
+        {
+            uint32_t const bit = 1u << ((CODE39_ELEMENTS_PER_CHAR - 1u) - idx);
+
+            if ((0u == (pattern & bit)) &&
+                (p_elements[idx] > max_narrow[colour]))
+            {
+                max_narrow[colour] = p_elements[idx];
             }
         }
 
-        pattern |= 1u << ((CODE39_ELEMENTS_PER_CHAR - 1u) - best_idx);
-        min_wide = (best < min_wide) ? best : min_wide;
-    }
-
-    for (uint32_t idx = 0u; idx < CODE39_ELEMENTS_PER_CHAR; idx++)
-    {
-        uint32_t const bit = 1u << ((CODE39_ELEMENTS_PER_CHAR - 1u) - idx);
-
-        if ((0u == (pattern & bit)) && (p_elements[idx] > max_narrow))
+        if ((min_wide[colour] * RATIO_DENOMINATOR) <
+            (max_narrow[colour] * RATIO_NUMERATOR))
         {
-            max_narrow = p_elements[idx];
+            result = CODE39_BAD_RATIO;
         }
     }
 
-    if ((min_wide * RATIO_DENOMINATOR) < (max_narrow * RATIO_NUMERATOR))
-    {
-        result = CODE39_BAD_RATIO;
-    }
-
     *p_pattern  = pattern;
-    *p_min_wide = min_wide;
+    *p_min_wide = min_wide[1];
 
     return (result);
 }

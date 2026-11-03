@@ -10,7 +10,8 @@
  * A frame is start character, data character, stop character: 3 characters
  * of 9 elements (5 bars, 4 spaces, exactly 3 wide) separated by 2 narrow
  * inter-character gaps, which is 29 elements in total (Week 6 Section 6.4).
- * Each character's three widest elements are classed as wide, so only the
+ * In each character the two widest bars and the widest space are wide
+ * (bars and spaces are compared separately, see code39.c), so only the
  * ratio between elements matters and an unknown constant speed is
  * irrelevant.  If the forward read fails the elements are reversed and the
  * read is retried, because a barcode may be crossed in either direction

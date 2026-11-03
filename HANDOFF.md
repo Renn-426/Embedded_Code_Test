@@ -132,3 +132,21 @@ Found today:
   `docs/GETTING_STARTED.md`, `tools/barr_check.py`.
 
 `robot_cfg.h` is touched by buddies 1, 2 and 3: stage it in parts with `git add -p`.
+
+## Lab-feedback fixes (2026-11-03, after the handoff above)
+
+Committed on branch `claude/epic-hopper-p48qrj` of this repo, under `source/`.
+`working_changes.patch` was NOT regenerated and does not include these.
+
+| Feedback | File(s) | Change |
+|---|---|---|
+| Barcode "scans but not confirmed" | `buddy3_line/code39.c` | Bars and spaces are now classed separately (2 widest bars + widest space = wide). IR blur makes bars read wider and spaces narrower, so the old "3 widest of 9" mistook a narrow bar for the wide space. New unit test reproduces this (fails on the old code). |
+| Decode front and back | `code39.c`, `tests/test_main.c` | Reverse read already existed; the new blur test checks every letter both ways. |
+| Highlight decoded letter | `integration/debug_mon.c`, `tools/tlm_decode.py` | Banner with the letter, direction and junction action on USB console and MQTT monitor; "last X" on the status line; rejects print "seen but NOT decoded" with the reason. |
+| Calibration sweep goes too far left / misses line from dead centre | `integration/vehicle.c` | Sweep is now 20 deg out, 40 deg back, then a return swing that STOPS when the centre sensor reaches the line edge (instead of a blind +25/-50/+25). Vehicle polls every 10 ms during that swing. |
+| Obstacle: steers too far to the side; find width then decide turn | `buddy5_obstacle/obs_profile.c/.h`, `integration/vehicle.c`, `platform/robot_cfg.h` | Sonar beam spread taken off the width (`SONAR_BEAM_HALF_DEG`); sideways move measured from the real obstacle edge + half vehicle + `BYPASS_MARGIN_MM` (40), clamped 80..250 mm; detour angle = atan(sideways / distance ahead), 25..60 deg (was fixed 45). |
+| Scans too fast | `buddy5_obstacle/obstacle.c`, `robot_cfg.h` | Fine-scan settle 60 -> 100 ms; first fine point gets the full 150 ms after the big servo jump. |
+
+To tune on the robot: `SONAR_BEAM_HALF_DEG` (scan a box of known width),
+`BYPASS_MARGIN_MM`, `CALIB_SWEEP_DEG` / `CALIB_RETURN_MAX_DEG` in vehicle.c.
+Not touched: IMU wiring fault, junction turns, curve speed.

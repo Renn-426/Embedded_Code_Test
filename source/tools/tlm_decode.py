@@ -178,6 +178,25 @@ def decode(payload):
     return {'frame': 'unknown type %d' % frame_type}
 
 
+def highlight(decoded):
+    """Print a banner for a decoded barcode, so it stands out in the log."""
+    if decoded.get('event') == 'BARCODE':
+        letter = decoded.get('letter', '?')
+        way = 'BACKWARDS' if decoded.get('reversed') else 'FORWARDS'
+        bold = '\033[1;30;43m' if sys.stdout.isatty() else ''
+        reset = '\033[0m' if sys.stdout.isatty() else ''
+        lines = ['=' * 34,
+                 '== %-28s ==' % ('BARCODE DECODED:  [ %s ]' % letter),
+                 '== %-28s ==' % ('read ' + way),
+                 '=' * 34]
+        for line in lines:
+            print('%s%s%s' % (bold, line, reset))
+        sys.stdout.flush()
+    elif decoded.get('event') == 'DECODE_FAIL':
+        print('  -- barcode seen but NOT decoded: %s, %s elements'
+              % (decoded.get('reason'), decoded.get('elements')), flush=True)
+
+
 def build_command(name, letter=None, action=None, map_version=0):
     """Build a binary command payload."""
     header = 0x08 | (VERSION << 4)
@@ -246,7 +265,9 @@ def run_mqtt(args):
 
     def on_message(_client, _userdata, message):
         try:
-            print(message.topic, decode(message.payload), flush=True)
+            decoded = decode(message.payload)
+            print(message.topic, decoded, flush=True)
+            highlight(decoded)
         except ValueError as error:
             print(message.topic, 'undecodable:', error,
                   message.payload.hex(' '))

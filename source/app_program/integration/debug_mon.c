@@ -230,18 +230,30 @@ report_barcode (debug_mon_seen_t * p_seen)
                                                  VEHICLE_ACTION_SHIFT,
                                                  VEHICLE_ACTION_WIDTH);
 
-        // (UB *): string literal to the monitor API's character type.  The
-        // letter field is below 26, so LETTER_A + letter is printable.
-        (void) tm_printf((UB *) ">>> BARCODE '%c' -> next junction %s\n",
-                         LETTER_A + letter, gp_action_names[action]);
+        uint32_t const b_rev  = bitpack_word_get(word, BARCODE_REVERSED_SHIFT,
+                                                 1u);
+
+        // A banner, so the decoded letter stands out on the console during
+        // the assessment.  (UB *): string literal to the monitor API's
+        // character type.  The letter field is below 26, so
+        // LETTER_A + letter is printable.
+        (void) tm_printf((UB *) "\n"
+                         "#################################\n"
+                         "##   BARCODE DECODED:  [ %c ]   ##\n"
+                         "##   read %-9s            ##\n"
+                         "##   next junction: %-9s  ##\n"
+                         "#################################\n\n",
+                         LETTER_A + letter,
+                         (0u != b_rev) ? "BACKWARDS" : "FORWARDS",
+                         gp_action_names[action]);
         p_seen->barcode_reads = reads;
     }
 
     if (rejects != p_seen->barcode_rejects)
     {
         // (UB *): string literal to the monitor API's character type.
-        (void) tm_printf((UB *) "xxx barcode rejected (%lu so far)\n",
-                         rejects);
+        (void) tm_printf((UB *) "xxx barcode seen but NOT decoded "
+                         "(%lu rejects so far)\n", rejects);
         p_seen->barcode_rejects = rejects;
     }
 }
@@ -354,6 +366,21 @@ print_status (void)
         (void) tm_printf((UB *) " | bc d%4lu w%4lu b%4lu adc n%lu ov%lu "
                          "boot%02lx", dark, white, black, calls, overruns,
                          app_main_boot_failures());
+    }
+
+    {
+        uint32_t const bc_word = sys_status_read(SYS_STATUS_BARCODE);
+        uint32_t const reads   = bitpack_word_get(bc_word,
+                                                  BARCODE_READS_SHIFT,
+                                                  BARCODE_COUNT_WIDTH);
+
+        // Last decoded letter, '-' before the first read.  The letter field
+        // is below 26, so the sum is a printable character.
+        (void) tm_printf((UB *) " | last %c",
+                         (0u == reads) ? '-' :
+                         (LETTER_A + bitpack_word_get(bc_word,
+                                                      BARCODE_LETTER_SHIFT,
+                                                      BARCODE_LETTER_WIDTH)));
     }
 
     // (UB *): string literal to the monitor API's character type.
